@@ -2,7 +2,7 @@
 // @name            Bundle Helper Reborn 3.0
 // @namespace       https://github.com/SentaiBrad/
 // @author          SentaiBrad
-// @version         3.0.12
+// @version         3.0.13
 // @description     Marks owned/ignored/wishlisted games on several sites, and also adds a button to open the steam page for each game.
 // @match           *://dailyindiegame.com/*
 // @match           *://old.reddit.com/*
@@ -1416,6 +1416,7 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 					closestSelector: ".bundle-game-card, .bundle-product-card, .card, .HitCard, .header-content-container, .NewPickAndMixCard, .PickAndMixCard, .ProductHeader.container",
 					addSteamLinkFunc: (item, closest, link) => {
 						closest.style.position = "relative";
+						closest.classList.add("bh_card");
 						closest.insertAdjacentElement("beforeend", link);
 					},
 				});
@@ -1613,17 +1614,17 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
             console.log("BH: humblebundle handler running");
 			document.body.classList.add("bh_basic_style");
 			GM_addStyle(`
+				/* Humble: outline and label on the image, not the whole tile. */
 				.bh_basic_style .tier-item-view.bh_owned   .img-container,
 				.bh_basic_style .tier-item-view.bh_wished  .img-container,
 				.bh_basic_style .tier-item-view.bh_ignored .img-container {
-					outline: 3px solid var(--bh-bgcolor);
-					outline-offset: -3px;
+					outline: var(--bh-outline-width) var(--bh-outline-style) var(--bh-color);
+					outline-offset: calc(-1 * var(--bh-outline-width));
 				}
 				.bh_basic_style .tier-item-view.bh_owned,
 				.bh_basic_style .tier-item-view.bh_wished,
 				.bh_basic_style .tier-item-view.bh_ignored {
-					background: unset;
-					box-shadow: none;
+					outline: none !important;
 				}
 				.tier-item-view .img-container {
 					position: relative;
@@ -1633,11 +1634,6 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 					bottom: 4px;
 					right: 4px;
 					z-index: 10;
-				}
-				.tier-item-view.bh_owned .item-flavor-text,
-				.tier-item-view.bh_wished .item-flavor-text,
-				.tier-item-view.bh_ignored .item-flavor-text {
-					color: #ccc !important;
 				}
 			`);
 
@@ -1657,6 +1653,7 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 						const cssClass = match.type === "sub" ? getClassForSubId(match.id) : getClassForAppId(match.id);
 						if (cssClass) { tile.classList.add(cssClass); noteMarked(); }
 						const img_container = tile.querySelector(".img-container");
+						img_container?.classList.add("bh_card");
 						if (img_container && !img_container.querySelector(".bh_steamlink")) {
 							img_container.appendChild(createSteamLink(match.type, match.id));
 						}
@@ -1746,6 +1743,7 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 			GM_addStyle(`
 				.bh_eneba_card {
 					position: relative;
+					--bh-label-left: 38px;   /* right of the Steam button */
 				}
 				/* Top-left: Eneba shows its wishlist heart top-right on hover. */
 				.bh_eneba_card > .bh_steamlink {
@@ -1764,7 +1762,7 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 				.bh_basic_style .bh_eneba_heading.bh_owned,
 				.bh_basic_style .bh_eneba_heading.bh_wished,
 				.bh_basic_style .bh_eneba_heading.bh_ignored {
-					padding: 0.1em 0.4em;
+					outline-offset: 3px;
 					border-radius: 4px;
 				}
 			`);
@@ -1810,7 +1808,7 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 					if (!name) continue;
 					const card = findEnebaCard(link);
 					if (!card || card.classList.contains("bh_already_processed")) continue;
-					card.classList.add("bh_already_processed", "bh_eneba_card");
+					card.classList.add("bh_already_processed", "bh_eneba_card", "bh_card");
 					resolveTitle(name).then((match) => {
 						if (match) markEneba(card, match, (a) => card.appendChild(a));
 					});
@@ -1863,34 +1861,46 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 				z-index: 99;
 			}
 
-			/* Marking style: a bright colored ring with a soft outer glow (an
-			   optional tint is off by default).
-			   The site's own background and text colors are kept, so text stays
-			   readable on light and dark themes. Ring and tint are drawn with
-			   box-shadow and background-image, which never change an element's
-			   size or position (safe for cards that move on hover).
-			   Colors as R, G, B so the tint strength can be adjusted in one place. */
+			/* Marking style (3.0.13): a solid outline drawn on top of the item, plus
+			   a small OWNED / WISHLIST / IGNORED label on card-style items. The
+			   item's own colors are untouched and nothing is faded. Outlines never
+			   change size or position (safe for cards that move on hover).
+			   All look settings are variables, for a future settings panel. */
 			body {
-				--bh-rgb-owned: 0, 230, 118;      /* #00E676 */
-				--bh-rgb-wished: 41, 182, 246;    /* #29B6F6 */
-				--bh-rgb-ignored: 150, 150, 150;
-				--bh-ring-width: 4px;
-				--bh-glow-strength: 0.55;
-				--bh-tint-strength: 0;            /* 0 = no tint over the item */
-				--bh-ignored-opacity: 0.7;
+				--bh-color-owned: #22e07a;
+				--bh-color-wished: #3db8ff;
+				--bh-color-ignored: #9a9a9a;
+				--bh-outline-width: 3px;
+				--bh-label-text-color: #0b0b0b;
+				--bh-label-top: 8px;
+				--bh-label-left: 8px;
 				--bh-steamlink-size: 24px;
 			}
-			.bh_owned   { --bh-rgb: var(--bh-rgb-owned);   --bh-bgcolor: rgb(var(--bh-rgb-owned)); }
-			.bh_wished  { --bh-rgb: var(--bh-rgb-wished);  --bh-bgcolor: rgb(var(--bh-rgb-wished)); }
-			.bh_ignored { --bh-rgb: var(--bh-rgb-ignored); --bh-bgcolor: rgb(var(--bh-rgb-ignored)); }
+			.bh_owned   { --bh-color: var(--bh-color-owned);   --bh-bgcolor: var(--bh-color-owned);   --bh-outline-style: solid;  --bh-label: "OWNED"; }
+			.bh_wished  { --bh-color: var(--bh-color-wished);  --bh-bgcolor: var(--bh-color-wished);  --bh-outline-style: solid;  --bh-label: "WISHLIST"; }
+			.bh_ignored { --bh-color: var(--bh-color-ignored); --bh-bgcolor: var(--bh-color-ignored); --bh-outline-style: dashed; --bh-label: "IGNORED"; }
 			.bh_basic_style .bh_owned,
 			.bh_basic_style .bh_wished,
 			.bh_basic_style .bh_ignored {
-				box-shadow: inset 0 0 0 var(--bh-ring-width) rgb(var(--bh-rgb)), 0 0 10px 1px rgba(var(--bh-rgb), var(--bh-glow-strength)) !important;
-				background-image: linear-gradient(rgba(var(--bh-rgb), var(--bh-tint-strength)), rgba(var(--bh-rgb), var(--bh-tint-strength))) !important;
+				outline: var(--bh-outline-width) var(--bh-outline-style) var(--bh-color) !important;
+				outline-offset: calc(-1 * var(--bh-outline-width));
 			}
-			.bh_basic_style .bh_ignored {
-				opacity: var(--bh-ignored-opacity);
+			/* Label on card-style items (the element with .bh_card must be positioned). */
+			.bh_owned.bh_card::after,   .bh_owned .bh_card::after,
+			.bh_wished.bh_card::after,  .bh_wished .bh_card::after,
+			.bh_ignored.bh_card::after, .bh_ignored .bh_card::after {
+				content: var(--bh-label);
+				position: absolute;
+				top: var(--bh-label-top);
+				left: var(--bh-label-left);
+				z-index: 6;
+				pointer-events: none;
+				font: 700 11px/1 sans-serif;
+				letter-spacing: 0.04em;
+				padding: 4px 6px;
+				border-radius: 3px;
+				background: var(--bh-color);
+				color: var(--bh-label-text-color);
 			}
 
 			.bh_steamlink svg {

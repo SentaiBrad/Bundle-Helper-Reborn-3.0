@@ -1,5 +1,11 @@
 # Changelog
 
+## 3.0.13
+
+- **New marking look (all sites):** a solid outline drawn on top of the item (green owned, blue wishlisted, gray dashed ignored) plus a small **OWNED / WISHLIST / IGNORED** label on card-style items (Eneba, Humble, Fanatical). The item's own colors are untouched and nothing is faded any more. The 3.0.12 ring was drawn underneath the card's picture, so it was barely visible, and the fade on ignored items read as "greyed out".
+- Humble: the outline and label go on the game's image, as before; the tile itself is no longer filled.
+- Look settings are CSS variables (`--bh-color-owned`, `--bh-color-wished`, `--bh-color-ignored`, `--bh-outline-width`, label position and text color) for a future settings panel.
+
 ## 3.0.12
 
 - **Easier-to-read marking.** Owned and wishlisted items now get a bright colored ring with a soft glow (green owned, blue wishlisted) instead of a solid green/blue fill with forced white text. The item's own colors and text are untouched, so it stays readable on dark sites and with dark themes. Ignored items get a gray ring and are faded much less (70% instead of 30%). Colors, ring width, glow, an optional tint (off by default) and the fade are CSS variables (`--bh-rgb-owned`, `--bh-ring-width`, `--bh-glow-strength`, `--bh-tint-strength`, `--bh-ignored-opacity`) for a future settings panel.

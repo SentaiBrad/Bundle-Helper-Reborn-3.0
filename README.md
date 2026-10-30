@@ -4,9 +4,11 @@ A userscript that marks the games you already own, have wishlisted, or have igno
 
 If you buy games outside of Steam, it shows at a glance what you already have, without looking each game up manually.
 
-- **Green ring:** owned
-- **Blue ring:** wishlisted
-- **Gray ring, faded:** ignored
+- **Green outline, OWNED label:** owned
+- **Blue outline, WISHLIST label:** wishlisted
+- **Gray dashed outline, IGNORED label:** ignored
+
+Labels appear on card-style items (Eneba, Humble Bundle, Fanatical); other sites get the outline.
 
 ## Install
 
