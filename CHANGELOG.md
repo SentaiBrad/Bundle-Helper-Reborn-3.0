@@ -1,5 +1,17 @@
 # Changelog
 
+## 3.0.9
+
+- **Steam button** in the corner panel opens Steam settings. For now it only has an optional Steam Web API key field (save, clear, shows the last 4 characters). The key is stored in the userscript manager and is **not used by anything yet**. It's never written to the log or the debug report.
+- Panel views (debug, Steam settings) open one at a time.
+- Debug report additions:
+  - the update URL the installed copy uses, and the manager's injection mode
+  - "Page at script start", which shows when a site changed pages without reloading
+  - when the script started and when the first item got marked
+  - items with more than one Steam button (the Fanatical hover duplicate)
+  - on Fanatical: whether the data hook is installed and how many items it captured Steam data for
+  - an error line whenever a Humble or itch.io tile title comes out empty
+
 ## 3.0.8
 
 - **Debug button.** A bug icon in the corner panel opens a debug report with [copy] and [refresh]. The report uses `[Section]` headers and `Setting = value` lines and covers:

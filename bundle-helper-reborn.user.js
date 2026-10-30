@@ -2,7 +2,7 @@
 // @name            Bundle Helper Reborn 3.0
 // @namespace       https://github.com/SentaiBrad/
 // @author          SentaiBrad
-// @version         3.0.8
+// @version         3.0.9
 // @description     Marks owned/ignored/wishlisted games on several sites, and also adds a button to open the steam page for each game.
 // @match           *://dailyindiegame.com/*
 // @match           *://old.reddit.com/*
@@ -256,7 +256,19 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 	const debug_state = {
 		site_handler: "",
 		steam_fetch: "not fetched on this page (saved data used)",
+		url_at_start: location.href,
+		started_ms: Math.round(performance.now()),   // ms since the page started loading
+		first_mark_ms: null,
+		fetch_hook: "not used on this site",
 	};
+
+	// Call whenever an item gets marked; records how long the first one took.
+	function noteMarked() {
+		if (debug_state.first_mark_ms === null) {
+			debug_state.first_mark_ms = Math.round(performance.now());
+			debug_log.add("site", `first item marked ${debug_state.first_mark_ms} ms after the page started loading`);
+		}
+	}
 
 	//////////////////////////////////////////////////
 	// Steam profile data caching
@@ -363,12 +375,51 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 	}
 
 	//////////////////////////////////////////////////
+	// Optional Steam Web API key (prepared, NOT used yet)
+	//
+	// Nothing in the script needs a key today. This only stores one so future
+	// features can use it. Rules for when it does get used:
+	//   - Only send it to https://api.steampowered.com (add
+	//     "@connect api.steampowered.com" to the header at that point).
+	//   - Never log it, never put it in the debug report, never send it anywhere else.
+	//   - Every feature must still work without a key.
+
+	const steam_api = {
+		storage_name: "bh_steam_api_key",
+		getKey() {
+			return String(GM_getValue(this.storage_name, "") || "");
+		},
+		hasKey() {
+			return this.getKey().length > 0;
+		},
+		// Steam Web API keys are 32 hexadecimal characters.
+		isValidFormat(key) {
+			return /^[0-9A-F]{32}$/i.test(key);
+		},
+		setKey(key) {
+			GM_setValue(this.storage_name, String(key).trim());
+		},
+		clearKey() {
+			GM_setValue(this.storage_name, "");
+		},
+	};
+
+	//////////////////////////////////////////////////
 	// Bundle Helper panel (bottom-left corner)
 	//
 	// The panel is a list of sections. Each section supplies its own HTML,
 	// optional CSS, an init(panel) to hook up events and an update(panel) to
 	// refresh what it shows. New features add a section with addPanelSection()
 	// instead of editing the panel itself.
+
+	// Monochrome Steam logo for the panel (same shapes as the Steam buttons).
+	const steam_icon_svg = `
+		<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" aria-label="Steam" role="img">
+			<path d="m183 280 41 28 27 41 87-62-94-96"/>
+			<circle cx="325" cy="191" r="74" fill="none" stroke="currentColor" stroke-width="40"/>
+			<ellipse cx="191" cy="340" rx="56" ry="56" fill="none" stroke="currentColor" stroke-width="40"/>
+		</svg>
+	`;
 
 	// Classic "bug" icon.
 	const bug_icon_svg = `
@@ -437,6 +488,13 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 			close() {
 				root.remove();
 			},
+			// Views are hidden sections opened by a panel button; one at a time.
+			toggleView(id) {
+				for (const view of shadow.querySelectorAll(".view")) {
+					view.hidden = (view.id === id) ? !view.hidden : true;
+				}
+				panel.update();
+			},
 		};
 
 		for (const section of panel_sections) {
@@ -470,13 +528,14 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 			<p>
 				<a href="javascript:;" id="close" class="right">[close]</a>
 				<a href="javascript:;" id="retry" class="right" title="Forget saved title misses and look them up again">[retry misses]</a>
-				<a href="javascript:;" id="debug-toggle" class="right bug" title="Debug info">${bug_icon_svg}</a>
+				<a href="javascript:;" id="debug-toggle" class="right icon" title="Debug info">${bug_icon_svg}</a>
+				<a href="javascript:;" id="steam-toggle" class="right icon" title="Steam settings">${steam_icon_svg}</a>
 				Wishlisted:
 				<output id="wishlist"></output> apps.
 			</p>
 		`,
 		css: `
-			.bug svg {
+			.icon svg {
 				width: 12px;
 				height: 12px;
 				vertical-align: -2px;
@@ -514,7 +573,7 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 	addPanelSection({
 		id: "debug",
 		html: `
-			<div id="debug" hidden>
+			<div id="debug" class="view" hidden>
 				<p class="debug-actions">
 					<a href="javascript:;" id="debug-copy">[copy]</a>
 					<a href="javascript:;" id="debug-refresh">[refresh]</a>
@@ -524,7 +583,7 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 			</div>
 		`,
 		css: `
-			#debug {
+			.view {
 				margin-top: 0.4em;
 				padding-top: 0.4em;
 				border-top: 1px solid #556;
@@ -547,8 +606,7 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 			};
 			panel.$("#debug-toggle").addEventListener("click", (ev) => {
 				ev.preventDefault();
-				view.hidden = !view.hidden;
-				if (!view.hidden) show();
+				panel.toggleView("debug");
 			});
 			panel.$("#debug-refresh").addEventListener("click", (ev) => {
 				ev.preventDefault();
@@ -578,6 +636,70 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 		},
 	});
 
+	// Section: Steam settings, opened by the Steam button. Hidden by default.
+	// Today it only stores the optional Web API key; nothing uses it yet.
+	addPanelSection({
+		id: "steam-settings",
+		html: `
+			<div id="steam-settings" class="view" hidden>
+				<p><b>Steam Web API key</b> (optional, not used yet)</p>
+				<p>Status: <output id="api-key-status"></output></p>
+				<p>
+					<input id="api-key-input" type="password" autocomplete="off" spellcheck="false" placeholder="32-character key" size="34">
+					<a href="javascript:;" id="api-key-save">[save]</a>
+					<a href="javascript:;" id="api-key-clear">[clear]</a>
+				</p>
+				<p class="hint">Get one at <a href="https://steamcommunity.com/dev/apikey" target="_blank" rel="noopener">steamcommunity.com/dev/apikey</a>. Stored only in your userscript manager.</p>
+			</div>
+		`,
+		css: `
+			#api-key-input {
+				font: 11px monospace;
+				background: #0e1621;
+				color: #ddd;
+				border: 1px solid #556;
+				padding: 1px 3px;
+				margin: 0.3em 0;
+			}
+			.hint {
+				color: #9aa;
+				font-size: 11px;
+			}
+			.hint a {
+				text-decoration: underline;
+			}
+		`,
+		init(panel) {
+			panel.$("#steam-toggle").addEventListener("click", (ev) => {
+				ev.preventDefault();
+				panel.toggleView("steam-settings");
+			});
+			panel.$("#api-key-save").addEventListener("click", (ev) => {
+				ev.preventDefault();
+				const key = panel.$("#api-key-input").value.trim();
+				if (!steam_api.isValidFormat(key)) {
+					panel.$("#api-key-status").value = "not saved: a key is 32 letters and digits (0-9, A-F)";
+					return;
+				}
+				steam_api.setKey(key);
+				panel.$("#api-key-input").value = "";
+				debug_log.add("steam", "Steam Web API key saved");
+				panel.update();
+			});
+			panel.$("#api-key-clear").addEventListener("click", (ev) => {
+				ev.preventDefault();
+				steam_api.clearKey();
+				panel.$("#api-key-input").value = "";
+				debug_log.add("steam", "Steam Web API key cleared");
+				panel.update();
+			});
+		},
+		update(panel) {
+			const key = steam_api.getKey();
+			panel.$("#api-key-status").value = key ? `saved (ends in ${key.slice(-4)})` : "not set";
+		},
+	});
+
 	// Plain-text report: [Section] headers and "Setting = value" lines.
 	function buildDebugReport() {
 		const lines = [];
@@ -592,9 +714,15 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 		section("Script");
 		value("Version", info?.script?.version ?? "unknown");
 		value("Manager", info ? `${info.scriptHandler ?? "unknown"} ${info.version ?? ""}`.trim() : "unknown");
+		value("Update URL", info?.script?.updateURL || info?.script?.downloadURL || info?.scriptUpdateURL || "unknown");
+		value("Injection mode", info?.sandboxMode ?? info?.injectInto ?? "unknown");
 		value("Page", location.origin + location.pathname);
+		value("Page at script start", location.href === debug_state.url_at_start ? "same" : `${debug_state.url_at_start} (the site changed pages without reloading)`);
 		value("Site handler", debug_state.site_handler || "none (this host has no handler)");
 		value("Browser", navigator.userAgent);
+		value("Script started", `${debug_state.started_ms} ms after the page started loading`);
+		value("First item marked", debug_state.first_mark_ms === null ? "not yet" : `${debug_state.first_mark_ms} ms after the page started loading`);
+		value("Steam Web API key", steam_api.hasKey() ? "set (not used yet)" : "not set");
 
 		section("Steam data");
 		const sets = getCachedSets();
@@ -623,7 +751,12 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 		value("Steam buttons", count(".bh_steamlink"));
 		value("Processed elements", count(".bh_already_processed"));
 		value("Page watchers", active_mutation_observers.length);
-		if (debug_state.site_handler === "fanatical.com") value("Fanatical covers with Steam data", fanatical_cover_map.size);
+		const duplicates = [...document.querySelectorAll(".bh_already_processed")].filter((el) => el.querySelectorAll(".bh_steamlink").length > 1).length;
+		value("Items with more than one Steam button", duplicates);
+		if (debug_state.site_handler === "fanatical.com") {
+			value("Fanatical fetch hook", debug_state.fetch_hook);
+			value("Fanatical covers with Steam data", `${fanatical_cover_map.size}${fanatical_cover_map.size ? "" : " (0 after the page loaded means the hook isn't seeing Fanatical's data)"}`);
+		}
 		value("Errors this page", debug_log.count("error"));
 
 		section("Log (newest last)");
@@ -727,6 +860,7 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 					const cssClass = getClassForAppId(app) || getClassForSubId(sub);
 					if (cssClass) {
 						closest.classList.add(cssClass);
+					noteMarked();
 					}
 
 					const steam_link = createSteamLink(app ? "app" : "sub", app || sub);
@@ -1105,6 +1239,7 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 			// Using unsafeWindow to access the page's window object:
 			// * https://violentmonkey.github.io/api/metadata-block/#inject-into
 			const original_fetch = unsafeWindow.fetch;
+			debug_state.fetch_hook = "installed";
 			unsafeWindow.fetch = async function(...args) {
 				let [resource, options] = args;
 				const response = await original_fetch(resource, options);
@@ -1402,11 +1537,12 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 					const title_elem = tile.querySelector(".item-title");
 					if (!title_elem) continue;
 					const title = ([...title_elem.childNodes].filter(n => n.nodeType === Node.TEXT_NODE).map(n => n.textContent.trim()).join("")).trim();
+					if (!title) debug_log.add("error", `Humble tile title came out empty; tile text is ${JSON.stringify(title_elem.textContent.trim().slice(0, 80))}`);
 					resolveTitle(title).then((match) => {
 						if (!match) return;
 						tile.classList.remove("bh_owned", "bh_wished", "bh_ignored");
 						const cssClass = match.type === "sub" ? getClassForSubId(match.id) : getClassForAppId(match.id);
-						if (cssClass) tile.classList.add(cssClass);
+						if (cssClass) { tile.classList.add(cssClass); noteMarked(); }
 						const img_container = tile.querySelector(".img-container");
 						if (img_container && !img_container.querySelector(".bh_steamlink")) {
 							img_container.appendChild(createSteamLink(match.type, match.id));
@@ -1445,11 +1581,12 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
                                         const title_elem = tile.querySelector(".game_title, .title");
                                         if (!title_elem) continue;
                                         const title = ([...title_elem.childNodes].filter(n => n.nodeType === Node.TEXT_NODE).map(n => n.textContent.trim()).join("")).trim();
+                                        if (!title) debug_log.add("error", `itch.io tile title came out empty; tile text is ${JSON.stringify(title_elem.textContent.trim().slice(0, 80))}`);
                                         resolveTitle(title).then((match) => {
                                                 if (!match) return;
                                                 tile.classList.remove("bh_owned", "bh_wished", "bh_ignored");
                                                 const cssClass = match.type === "sub" ? getClassForSubId(match.id) : getClassForAppId(match.id);
-                                                if (cssClass) tile.classList.add(cssClass);
+                                                if (cssClass) { tile.classList.add(cssClass); noteMarked(); }
                                                 const thumb = tile.querySelector("a.game_thumb");
                                                 if (thumb && !thumb.querySelector(".bh_steamlink")) {
                                                         const link = createSteamLink(match.type, match.id);
