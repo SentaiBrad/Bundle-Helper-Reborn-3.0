@@ -1,5 +1,9 @@
 # Changelog
 
+## 3.0.11
+
+- Debug view: the tab row is a single fixed line, and "copied" now appears as a small label floating over the report's corner, so pressing [copy] no longer shifts the layout.
+
 ## 3.0.10
 
 - **Package lookup fix.** Steam's app details answered with an empty package list when asked only for `package_groups`. The script now asks for `basic,packages,package_groups`, which returns the list, and also accepts the answer when the userscript manager delivers it as text (Tampermonkey on Firefox). Found from the debug report: `packages of 21090 -> []`.

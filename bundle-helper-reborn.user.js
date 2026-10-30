@@ -2,7 +2,7 @@
 // @name            Bundle Helper Reborn 3.0
 // @namespace       https://github.com/SentaiBrad/
 // @author          SentaiBrad
-// @version         3.0.10
+// @version         3.0.11
 // @description     Marks owned/ignored/wishlisted games on several sites, and also adds a button to open the steam page for each game.
 // @match           *://dailyindiegame.com/*
 // @match           *://old.reddit.com/*
@@ -598,23 +598,50 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 		id: "debug",
 		html: `
 			<div id="debug" class="view" hidden>
-				<p class="tabs">
-					<a href="javascript:;" class="tab" data-tab="overview">Overview</a>
-					<a href="javascript:;" class="tab" data-tab="log">Log</a>
-					<a href="javascript:;" class="tab" data-tab="api">Steam API</a>
-					<span class="right">
-						<span id="debug-copied"></span>
+				<div class="tabs">
+					<span>
+						<a href="javascript:;" class="tab" data-tab="overview">Overview</a>
+						<a href="javascript:;" class="tab" data-tab="log">Log</a>
+						<a href="javascript:;" class="tab" data-tab="api">Steam API</a>
+					</span>
+					<span>
 						<a href="javascript:;" id="debug-refresh">[refresh]</a>
 						<a href="javascript:;" id="debug-copy" title="Copy the full report (all tabs)">[copy]</a>
 					</span>
-				</p>
-				<pre id="debug-text"></pre>
+				</div>
+				<div class="debug-body">
+					<span id="debug-copied" hidden></span>
+					<pre id="debug-text"></pre>
+				</div>
 			</div>
 		`,
 		css: `
+			/* One fixed line: tabs left, actions right. Nothing is ever inserted
+			   here, so it can't wrap or change size. */
+			.tabs {
+				display: flex;
+				justify-content: space-between;
+				gap: 0.5em;
+				white-space: nowrap;
+			}
 			.tab {
 				padding: 0 0.3em;
 				border-radius: 3px;
+			}
+			/* Status messages ("copied") float over the report instead of
+			   taking space in the layout. */
+			.debug-body {
+				position: relative;
+			}
+			#debug-copied {
+				position: absolute;
+				top: 0.3em;
+				right: 0.3em;
+				padding: 0.1em 0.5em;
+				border-radius: 3px;
+				background: #2a475e;
+				color: #fff;
+				pointer-events: none;
 			}
 			.tab.active {
 				background: #2a475e;
@@ -658,8 +685,11 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 				ev.preventDefault();
 				const text = buildDebugReport("all");
 				const done = (message) => {
-					panel.$("#debug-copied").textContent = message;
-					setTimeout(() => panel.$("#debug-copied").textContent = "", 3000);
+					const note = panel.$("#debug-copied");
+					note.textContent = message;
+					note.hidden = false;
+					clearTimeout(note.bh_timer);
+					note.bh_timer = setTimeout(() => note.hidden = true, 2500);
 				};
 				const fallback = () => {
 					// Clipboard blocked: show the full report and select it so Ctrl+C works.
