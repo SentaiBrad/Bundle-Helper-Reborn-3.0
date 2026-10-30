@@ -2,7 +2,7 @@
 // @name            Bundle Helper Reborn 3.0
 // @namespace       https://github.com/SentaiBrad/
 // @author          SentaiBrad
-// @version         3.0.3
+// @version         3.0.4
 // @description     Marks owned/ignored/wishlisted games on several sites, and also adds a button to open the steam page for each game.
 // @match           *://dailyindiegame.com/*
 // @match           *://old.reddit.com/*
@@ -570,54 +570,146 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 		});
 	}
 
-        // Makes store titles comparable: "F.E.A.R. 2: Project Origin™" and
-        // "FEAR 2 - Project Origin" both become "fear 2 project origin".
-        function normalizeTitle(title) {
-                return title
-                        .replace(/[™®©]/g, "")               // before NFKD, which turns ™ into "TM"
-                        .normalize("NFKD")
-                        .replace(/[\u0300-\u036f]/g, "")    // accents
-                        .replace(/&/g, " and ")
-                        .toLowerCase()
-                        .replace(/['’.]/g, "")               // F.E.A.R. -> fear, Assassin's -> assassins
-                        .replace(/[^a-z0-9]+/g, " ")          // other punctuation -> space
-                        .trim();
-        }
+	//////////////////////////////////////////////////
+	// Title matching (sites without Steam IDs: Humble Bundle, itch.io)
 
-        // Non-Latin titles normalize to "", so those fall back to a plain case-insensitive compare.
-        function titlesMatch(a, b) {
-                const na = normalizeTitle(a), nb = normalizeTitle(b);
-                if (na && nb) return na === nb;
-                return a.trim().toLowerCase() === b.trim().toLowerCase();
-        }
+	// Makes store titles comparable: "F.E.A.R. 2: Project Origin™" and
+	// "FEAR 2 - Project Origin" both become "fear 2 project origin".
+	function normalizeTitle(title) {
+		return title
+			.replace(/[™®©]/g, "")               // before NFKD, which turns ™ into "TM"
+			.normalize("NFKD")
+			.replace(/[\u0300-\u036f]/g, "")    // accents
+			.replace(/&/g, " and ")
+			.toLowerCase()
+			.replace(/['’.]/g, "")               // F.E.A.R. -> fear, Assassin's -> assassins
+			.replace(/[^a-z0-9]+/g, " ")          // other punctuation -> space
+			.trim();
+	}
 
-        const title_appid_cache = new Map();
-			function resolveTitle(title) {
-				if (title_appid_cache.has(title)) {
-					return Promise.resolve(title_appid_cache.get(title));
-				}
-				return new Promise((resolve) => {
-					GM_xmlhttpRequest({
-						method: "GET",
-						url: "https://store.steampowered.com/search/suggest?term=" + encodeURIComponent(title) + "&f=games&cc=US&realm=1&l=english",
-						onload: function(response) {
-							const parser = new DOMParser();
-							const doc = parser.parseFromString(response.responseText, "text/html");
-							const results = doc.querySelectorAll("a[data-ds-appid]");
-                                let appid = 0;
-                                for (const result of results) {
-                                        const resultTitle = result.querySelector(".match_name")?.textContent?.trim() ?? "";
-                                        if (titlesMatch(resultTitle, title)) { appid = Number(result.dataset?.dsAppid ?? 0); break; }
-                                }
-                                title_appid_cache.set(title, appid);
-                                resolve(appid);
-						},
-						onerror: function() {
-							resolve(0);
-						},
-					});
-				});
-			}
+	// Greek letters used as words, e.g. METAL GEAR SOLID Δ, NINJA GAIDEN Σ.
+	const greek_letter_names = {
+		"α": "alpha", "β": "beta", "γ": "gamma", "δ": "delta", "ε": "epsilon",
+		"ζ": "zeta", "η": "eta", "θ": "theta", "λ": "lambda", "μ": "mu",
+		"π": "pi", "σ": "sigma", "ς": "sigma", "τ": "tau", "φ": "phi",
+		"χ": "chi", "ψ": "psi", "ω": "omega",
+	};
+	function spellGreek(title) {
+		return title.replace(/[\u0370-\u03ff]/g, (ch) => {
+			const name = greek_letter_names[ch.toLowerCase()];
+			return name ? " " + name + " " : ch;
+		});
+	}
+
+	function removeBrackets(title) {
+		return title.replace(/\[[^\]]*\]/g, " ");
+	}
+
+	// Roman numerals as whole words, never the first word ("X-COM", "V Rising").
+	const roman_numerals = {
+		"ii": "2", "iii": "3", "iv": "4", "v": "5", "vi": "6", "vii": "7", "viii": "8",
+		"ix": "9", "x": "10", "xi": "11", "xii": "12", "xiii": "13", "xiv": "14", "xv": "15",
+	};
+	function romanToDigits(normalized) {
+		return normalized.split(" ").map((word, i) => (i > 0 && roman_numerals[word]) || word).join(" ");
+	}
+
+	// Trailing edition words, removed only as the last attempt.
+	const edition_suffix = /(\s+(definitive|ultimate|complete|deluxe|special|enhanced|anniversary|gold|premium|standard|digital deluxe|game of the year|goty|collectors|directors cut)(\s+edition)?|\s+(edition|remastered|remaster|hd|goty))+$/;
+	function removeEdition(normalized) {
+		return normalized.replace(edition_suffix, "").trim();
+	}
+
+	// Each attempt turns a raw title into a comparison key. Attempts run in
+	// order and only the first one that finds exactly one Steam result wins.
+	const title_match_attempts = [
+		(t) => normalizeTitle(t),
+		(t) => normalizeTitle(spellGreek(t)),
+		(t) => normalizeTitle(removeBrackets(spellGreek(t))),
+		(t) => romanToDigits(normalizeTitle(removeBrackets(spellGreek(t)))),
+		(t) => removeEdition(romanToDigits(normalizeTitle(removeBrackets(spellGreek(t))))),
+	];
+
+	// candidates: [{appid, title}] from one Steam search. Returns an appid or 0.
+	function pickSteamMatch(title, candidates) {
+		for (const [i, makeKey] of title_match_attempts.entries()) {
+			const key = makeKey(title);
+			if (!key) continue;
+			const ids = new Set(candidates.filter((c) => makeKey(c.title) === key).map((c) => c.appid));
+			if (ids.size === 1) return [...ids][0];
+			// Exact normalized match keeps the old "first result" behavior; later,
+			// looser attempts never guess between several different games.
+			if (i === 0 && ids.size > 1) return candidates.find((c) => makeKey(c.title) === key).appid;
+		}
+		// Non-Latin titles normalize to "", so compare those as written.
+		const plain = title.trim().toLowerCase();
+		return candidates.find((c) => c.title.trim().toLowerCase() === plain)?.appid ?? 0;
+	}
+
+	// Title lookups are saved between visits. Matches are kept 30 days and misses
+	// 1 day. Changing title_cache_version discards everything (e.g. after the
+	// matching rules change, so old misses get another chance).
+	const title_cache_name = "bh_title_cache";
+	const title_cache_version = 1;
+	const title_cache_match_days = 30;
+	const title_cache_miss_days = 1;
+	let title_cache = null;
+
+	function loadTitleCache() {
+		if (title_cache) return title_cache;
+		const stored = GM_getValue(title_cache_name, null);
+		title_cache = (stored && stored.version === title_cache_version && stored.entries) ? stored.entries : {};
+		const now = getUnixTimestamp();
+		for (const [key, entry] of Object.entries(title_cache)) {
+			const max_age = (entry?.appid ? title_cache_match_days : title_cache_miss_days) * 86400;
+			if (!entry || !(now - entry.time <= max_age)) delete title_cache[key];
+		}
+		return title_cache;
+	}
+
+	function saveTitleCache() {
+		GM_setValue(title_cache_name, {version: title_cache_version, entries: title_cache});
+	}
+
+	const pending_title_lookups = new Map();
+
+	function resolveTitle(title) {
+		const key = normalizeTitle(spellGreek(title)) || title.trim().toLowerCase();
+		if (!key) return Promise.resolve(0);
+		const cache = loadTitleCache();
+		if (cache[key]) return Promise.resolve(cache[key].appid);
+		if (pending_title_lookups.has(key)) return pending_title_lookups.get(key);
+
+		const lookup = new Promise((resolve) => {
+			GM_xmlhttpRequest({
+				method: "GET",
+				url: "https://store.steampowered.com/search/suggest?term=" + encodeURIComponent(title) + "&f=games&cc=US&realm=1&l=english",
+				onload: function(response) {
+					if (response.status !== 200) {
+						// Don't remember failures; try again next time.
+						resolve(0);
+						return;
+					}
+					const doc = new DOMParser().parseFromString(response.responseText, "text/html");
+					const candidates = [];
+					for (const result of doc.querySelectorAll("a[data-ds-appid]")) {
+						const appid = Number((result.dataset.dsAppid ?? "").split(",")[0]);
+						const result_title = result.querySelector(".match_name")?.textContent?.trim() ?? "";
+						if (appid && result_title) candidates.push({appid, title: result_title});
+					}
+					const appid = pickSteamMatch(title, candidates);
+					cache[key] = {appid, time: getUnixTimestamp()};
+					saveTitleCache();
+					resolve(appid);
+				},
+				onerror: () => resolve(0),
+				onabort: () => resolve(0),
+				ontimeout: () => resolve(0),
+			});
+		}).finally(() => pending_title_lookups.delete(key));
+		pending_title_lookups.set(key, lookup);
+		return lookup;
+	}
 
 	const site_mapping = {
 		"astats.astats.nl": function() {

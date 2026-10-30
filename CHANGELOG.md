@@ -1,5 +1,16 @@
 # Changelog
 
+## 3.0.4
+
+- **Saved title lookups.** Humble Bundle and itch.io title lookups are now remembered between visits: matches for 30 days, misses for 1 day. A repeat visit to a bundle makes no Steam searches. Failed searches (network errors, Steam errors) are never saved. Identical titles on one page share a single search.
+- **Matching fallbacks.** When a title doesn't match exactly, these are tried in order, using the same Steam search results (no extra requests):
+  1. Greek letters spelled out: "Metal Gear Solid Delta" matches "METAL GEAR SOLID Δ".
+  2. Bracketed collection names ignored: "[NINJA GAIDEN: Master Collection] NINJA GAIDEN Σ" matches "NINJA GAIDEN Σ [NINJA GAIDEN: Master Collection]".
+  3. Roman numerals as whole words, never the first word: "Broken Sword 2" matches "Broken Sword II".
+  4. Trailing edition words (Definitive, Deluxe, GOTY, Remastered, HD and so on) ignored on both sides: "Okami" matches "Okami HD".
+- The fallbacks never guess. If more than one different Steam game fits, the tile is left unmarked.
+- Greek letters are no longer silently dropped during matching.
+
 ## 3.0.3
 
 - Title matching (Humble Bundle, itch.io) now ignores case, periods, apostrophes, other punctuation, accents, ™/®/© and "&" vs "and". For example, Humble's "FEAR 2: Project Origin" now matches Steam's "F.E.A.R. 2: Project Origin". Titles still have to match word for word, so editions and sequels aren't guessed.
