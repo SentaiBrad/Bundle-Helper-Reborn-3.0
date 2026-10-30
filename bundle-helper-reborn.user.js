@@ -2,7 +2,7 @@
 // @name            Bundle Helper Reborn 3.0
 // @namespace       https://github.com/SentaiBrad/
 // @author          SentaiBrad
-// @version         3.0.0
+// @version         3.0.1
 // @description     Marks owned/ignored/wishlisted games on several sites, and also adds a button to open the steam page for each game.
 // @match           *://dailyindiegame.com/*
 // @match           *://old.reddit.com/*
@@ -1234,11 +1234,17 @@ broader card selectors, srcset/Steam CDN detection, SteamDB data attributes,
 					outline: 3px solid var(--bh-bgcolor);
 					outline-offset: -3px;
 				}
-				.bh_humble_card.bh_owned,
-				.bh_humble_card.bh_wished,
-				.bh_humble_card.bh_ignored {
-					background: unset;
+				.bh_basic_style .bh_humble_card.bh_owned,
+				.bh_basic_style .bh_humble_card.bh_wished,
+				.bh_basic_style .bh_humble_card.bh_ignored {
+					background: unset !important;
 					box-shadow: none;
+				}
+				.bh_basic_style .tier-item-view.bh_owned   .img-container,
+				.bh_basic_style .tier-item-view.bh_wished  .img-container,
+				.bh_basic_style .tier-item-view.bh_ignored .img-container {
+					outline: 3px solid var(--bh-bgcolor);
+					outline-offset: -3px;
 				}
 				.bh_humble_visual > .bh_steamlink {
 					position: absolute;
@@ -1294,7 +1300,7 @@ broader card selectors, srcset/Steam CDN detection, SteamDB data attributes,
 				try {
 					const seen_cards = new Set();
 					for (const title_element of document.querySelectorAll(title_selector)) {
-						const card = title_element.closest(card_selector) ?? title_element.closest("a") ?? title_element.parentElement;
+						const card = title_element.closest(".tier-item-view") ?? title_element.closest(card_selector) ?? title_element.closest("a") ?? title_element.parentElement;
 						if (!card || seen_cards.has(card) || card.classList.contains("bh_already_processed")) {
 							continue;
 						}
@@ -1326,8 +1332,9 @@ broader card selectors, srcset/Steam CDN detection, SteamDB data attributes,
 							if (cssClass) {
 								card.classList.add(cssClass);
 							}
+							console.info(`BH Humble: "${title}" -> ${app ? "app" : "sub"} ${product_id} -> ${cssClass || "not owned, wishlisted or ignored"}`);
 
-							const visual = card.querySelector(visual_selector) ?? title_element.parentElement;
+							const visual = card.querySelector(".img-container") ?? card.querySelector(visual_selector) ?? title_element.parentElement;
 							if (visual) {
 								visual.classList.add("bh_humble_visual");
 								if (!visual.querySelector(".bh_steamlink")) {

@@ -1,5 +1,10 @@
 # Changelog
 
+## 3.0.1
+
+- Humble Bundle: restored 2.0's tile coloring. Uses Humble's own tile and image elements again, and the background override now applies.
+- Humble Bundle: logs each tile's title, Steam ID and result to the browser console, to make mismatches easier to spot.
+
 ## 3.0.0
 
 - Renamed to **Bundle Helper Reborn 3.0** and moved from a GitHub Gist to a full repository, so changes can be contributed back with pull requests.
