@@ -2,7 +2,7 @@
 // @name            Bundle Helper Reborn 3.0
 // @namespace       https://github.com/SentaiBrad/
 // @author          SentaiBrad
-// @version         3.0.1
+// @version         3.0.2
 // @description     Marks owned/ignored/wishlisted games on several sites, and also adds a button to open the steam page for each game.
 // @match           *://dailyindiegame.com/*
 // @match           *://old.reddit.com/*
@@ -26,12 +26,10 @@
 // @match           *://gameseal.com/*
 // @match           *://www.gameseal.com/*
 // @match           *://itch.io/*
-// @match           *://*.itch.io/*
 // @match           *://tiltify.com/*
 // @match           *://www.tiltify.com/*
 // @match           *://g2a.com/*
 // @match           *://www.g2a.com/*
-// @run-at          document-start
 // @grant           GM_addStyle
 // @grant           GM_getValue
 // @grant           GM_setValue
@@ -89,26 +87,13 @@ This fork also available at:
 * License: [GPL-3.0-only](https://spdx.org/licenses/GPL-3.0-only.html)
 * Copyright 2016-2019, 7-elephant
 * Copyright 2023, Denilson Sá Maia
-* Copyright 2026, SentaiBrad (Bundle Helper Reborn 2.0 - Extended)
+* Copyright 2026, SentaiBrad
 
 ## Bundle Helper Reborn 3.0
 
-Bundle Helper Reborn 3.0 is maintained by SentaiBrad:
-* https://github.com/SentaiBrad/Bundle-Helper-Reborn-3.0
-
-It continues "Bundle Helper Reborn 2.0 - Extended" (v2.x), previously published at:
-* https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
-
-Version 2.10.0 (and therefore 3.0.0) incorporates improvements from "Bundle Dude" v2.9.13 by
-J Luetkens (DickHorner), a GPL-3.0 fork of this script:
-* https://gist.github.com/DickHorner/cc55aa516c389b11b93661a49f9e658a
-
-Taken from Bundle Dude: document-start loading and the early Fanatical fetch
-hook, Steam profile data validation, waiting for profile data before marking,
-re-marking after a manual refresh, normalized title matching with the
-"Standard Edition" and DLC fallbacks, direct-ID-first Humble handling with
-broader card selectors, srcset/Steam CDN detection, SteamDB data attributes,
-*.itch.io and old.reddit.com routing fixes.
+Maintained by SentaiBrad: https://github.com/SentaiBrad/Bundle-Helper-Reborn-3.0
+Continues "Bundle Helper Reborn 2.0 - Extended" (v2.x), previously published at
+https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 
 */
 
@@ -258,26 +243,7 @@ broader card selectors, srcset/Steam CDN detection, SteamDB data attributes,
 	const cache_max_age_seconds = 60 * 60 * 24;  // 24 hours
 	let cached_sets = null;
 
-	function isProfileDataValid(data) {
-		return data && typeof data === "object"
-			&& Array.isArray(data.rgAppsInCart)
-			&& Array.isArray(data.rgIgnoredPackages)
-			&& Array.isArray(data.rgOwnedApps)
-			&& Array.isArray(data.rgOwnedPackages)
-			&& Array.isArray(data.rgPackagesInCart)
-			&& Array.isArray(data.rgWishlist)
-			&& data.rgIgnoredApps && typeof data.rgIgnoredApps === "object";
-	}
-
-	function hasValidProfileCache() {
-		return isProfileDataValid(GM_getValue(cachename_profile_data, {}));
-	}
-
 	function setProfileCache(data) {
-		if (!isProfileDataValid(data)) {
-			throw new TypeError("Steam returned invalid profile data.");
-		}
-
 		cached_sets = null;
 		data.rgCurations = {};
 		data.rgCurators = {};
@@ -312,11 +278,8 @@ broader card selectors, srcset/Steam CDN detection, SteamDB data attributes,
 	function downloadProfileData() {
 		return new Promise((resolve, reject) => {
 			function handleError(response) {
-				const status = response?.status ?? "unknown";
-				const statusText = response?.statusText ?? "unknown";
-				const message = `Error while loading the data: status=${status}; statusText=${statusText}`;
-				console.error(message);
-				reject(new Error(message));
+				console.error(`Error while loading the data: status=${response.status}; statusText=${response.statusText}`);
+				reject();
 			}
 
 			GM_xmlhttpRequest({
@@ -332,7 +295,7 @@ broader card selectors, srcset/Steam CDN detection, SteamDB data attributes,
 				},
 				onerror: handleError,
 				onabort: function() {
-					reject(new Error("Steam profile request was aborted."));
+					reject();
 				},
 			});
 		});
@@ -345,7 +308,7 @@ broader card selectors, srcset/Steam CDN detection, SteamDB data attributes,
 	}
 
 	function updateProfileCacheIfExpired() {
-		if (!hasValidProfileCache() || isProfileCacheExpired()) {
+		if (isProfileCacheExpired()) {
 			return downloadAndUpdateProfileCache();
 		} else {
 			return Promise.resolve();
@@ -356,14 +319,14 @@ broader card selectors, srcset/Steam CDN detection, SteamDB data attributes,
 		if (!cached_sets) {
 			const data = GM_getValue(cachename_profile_data, {});
 			cached_sets = {
-				appsInCart: new Set(data.rgAppsInCart ?? []),
-				ignoredPackages: new Set(data.rgIgnoredPackages ?? []),
-				ownedApps: new Set(data.rgOwnedApps ?? []),
-				ownedPackages: new Set(data.rgOwnedPackages ?? []),
-				packagesInCart: new Set(data.rgPackagesInCart ?? []),
-				wishlist: new Set(data.rgWishlist ?? []),
+				appsInCart: new Set(data.rgAppsInCart),
+				ignoredPackages: new Set(data.rgIgnoredPackages),
+				ownedApps: new Set(data.rgOwnedApps),
+				ownedPackages: new Set(data.rgOwnedPackages),
+				packagesInCart: new Set(data.rgPackagesInCart),
+				wishlist: new Set(data.rgWishlist),
 				ignoredApps: new Set(Object.keys(data.rgIgnoredApps ?? {}).map((key) => Number(key))),
-				excludedTags: new Set((data.rgExcludedTags ?? []).map((obj) => obj.name)),
+				excludedTags: new Set(data.rgExcludedTags?.map((obj) => obj.name)),
 			};
 		}
 		return cached_sets;
@@ -424,7 +387,6 @@ broader card selectors, srcset/Steam CDN detection, SteamDB data attributes,
 					Wishlisted:
 					<output id="wishlist"></output> apps.
 				</p>
-				<p id="siteStatus" hidden></p>
 			</div>
 		`;
 
@@ -440,18 +402,9 @@ broader card selectors, srcset/Steam CDN detection, SteamDB data attributes,
 			shadow.querySelector("#wishlist").value = sets.wishlist.size;
 		}
 
-		shadow.querySelector("#refresh").addEventListener("click", async function(ev) {
+		shadow.querySelector("#refresh").addEventListener("click", function(ev) {
 			ev.preventDefault();
-			try {
-				await downloadAndUpdateProfileCache();
-				stopAllMutationObservers();
-				unmarkAllElements();
-				processSite();
-			} catch (error) {
-				console.error("BH: Steam profile refresh failed.", error);
-			} finally {
-				updateUI();
-			}
+			downloadAndUpdateProfileCache().finally(updateUI);
 		});
 
 		shadow.querySelector("#close").addEventListener("click", function(ev) {
@@ -476,7 +429,7 @@ broader card selectors, srcset/Steam CDN detection, SteamDB data attributes,
 
 		const UI = createBundleHelperUI();
 		root.appendChild(UI.element);
-		return UI;
+		updateProfileCacheIfExpired().finally(UI.update);
 	}
 
 	//////////////////////////////////////////////////
@@ -550,10 +503,10 @@ broader card selectors, srcset/Steam CDN detection, SteamDB data attributes,
 					skipped_items++;
 					continue;
 				}
+				closest.classList.add("bh_already_processed");
 
 				const {app, sub} = parseStringForSteamId(data);
 				if (app || sub) {
-					closest.classList.add("bh_already_processed");
 					marked_items++;
 					closest.classList.remove("bh_owned", "bh_wished", "bh_ignored");
 					const cssClass = getClassForAppId(app) || getClassForSubId(sub);
@@ -597,282 +550,12 @@ broader card selectors, srcset/Steam CDN detection, SteamDB data attributes,
 	// The values are the "steam" objects from Fanatical API.
 	const fanatical_cover_map = new Map();
 
-	function captureFanaticalSteamData(json_data) {
-		if (!json_data) {
-			return;
-		}
-		for (const bundle of json_data.bundles ?? []) {
-			for (const game of bundle.games ?? []) {
-				if (game.cover && game.steam) {
-					fanatical_cover_map.set(game.cover, game.steam);
-				}
-			}
-		}
-		for (const game of json_data.products ?? []) {
-			if (game.cover && game.steam) {
-				fanatical_cover_map.set(game.cover, game.steam);
-			}
-		}
-		if (json_data.cover && json_data.steam) {
-			fanatical_cover_map.set(json_data.cover, json_data.steam);
-		}
-	}
-
-	function installFanaticalFetchInterceptor() {
-		if (document.location.hostname.replace(/^www\./u, "") !== "fanatical.com") {
-			return;
-		}
-		const original_fetch = unsafeWindow.fetch;
-		if (typeof original_fetch !== "function" || original_fetch.bh_intercepted) {
-			return;
-		}
-
-		async function interceptedFetch(...args) {
-			const response = await original_fetch.apply(this, args);
-			const original_json = response.json;
-			if (typeof original_json === "function") {
-				response.json = function() {
-					const promise = original_json.apply(this);
-					promise.then(captureFanaticalSteamData, () => {});
-					return promise;
-				};
-			}
-			return response;
-		}
-		interceptedFetch.bh_intercepted = true;
-		unsafeWindow.fetch = interceptedFetch;
-	}
-
-	const title_appid_cache = new Map();
-	const steam_language_names = new Map([
-		["de", "german"],
-		["en", "english"],
-		["es", "spanish"],
-		["fr", "french"],
-		["it", "italian"],
-		["ja", "japanese"],
-		["ko", "koreana"],
-		["nl", "dutch"],
-		["pl", "polish"],
-		["pt", "portuguese"],
-		["pt-br", "brazilian"],
-		["ru", "russian"],
-		["tr", "turkish"],
-		["zh", "schinese"],
-		["zh-hans", "schinese"],
-		["zh-hant", "tchinese"],
-		["zh-hk", "tchinese"],
-		["zh-tw", "tchinese"],
-	]);
-	const standard_edition_suffix = /\bstandard edition$/u;
-
-	function normalizeGameTitle(title) {
-		return title
-			.replace(/[™®©]/gu, "")
-			.normalize("NFKD")
-			.replace(/\p{M}/gu, "")
-			.replace(/&/gu, " and ")
-			.toLowerCase()
-			.replace(/[^\p{L}\p{N}]+/gu, " ")
-			.trim();
-	}
-
-
-	function gameTitlesMatch(expected, candidate) {
-		const normalized_expected = normalizeGameTitle(expected);
-		const normalized_candidate = normalizeGameTitle(candidate);
-		if (!normalized_expected || !normalized_candidate) {
-			return false;
-		}
-		if (normalized_expected === normalized_candidate) {
-			return true;
-		}
-		return normalized_expected.replace(standard_edition_suffix, "").trim()
-			=== normalized_candidate.replace(standard_edition_suffix, "").trim();
-	}
-
-	function getSteamLookupTitles(title) {
-		const titles = [title];
-		const base_title = title.replace(/\s*(?:[:\-–—]\s*)?standard edition\s*$/iu, "").trim();
-		if (base_title && normalizeGameTitle(base_title) !== normalizeGameTitle(title)) {
-			titles.push(base_title);
-		}
-		return titles;
-	}
-
-	function extractSteamSearchCandidates(doc) {
-		const candidates = [];
-		for (const result of doc.querySelectorAll("a[data-ds-appid]")) {
-			const result_title = result.querySelector(".match_name, .title")?.textContent?.trim() ?? "";
-			const dataset_appid = Number.parseInt(result.dataset.dsAppid?.split(",")[0] ?? "", 10);
-			const appid = dataset_appid || parseStringForSteamId(result.href ?? "").app;
-			if (appid > 0 && result_title) {
-				candidates.push({appid: appid, title: result_title});
-			}
-		}
-		return candidates;
-	}
-
-	function chooseSteamSearchCandidate(title, candidates) {
-		const exact = candidates.find((candidate) => gameTitlesMatch(title, candidate.title));
-		// Only exact (normalized) matches are accepted. No fuzzy guessing,
-		// so a similarly named game is never marked by mistake.
-		return exact ? exact.appid : 0;
-	}
-
-	function getSteamLookupLanguages() {
-		const languages = [];
-		for (const locale_value of [document.documentElement.lang, navigator.language, "en"]) {
-			if (!locale_value) {
-				continue;
-			}
-			const locale = locale_value.toLowerCase().replace("_", "-");
-			const language = steam_language_names.get(locale)
-				?? steam_language_names.get(locale.split("-")[0])
-				?? "english";
-			if (!languages.includes(language)) {
-				languages.push(language);
-			}
-		}
-		return languages;
-	}
-
-	function getSteamLookupCountry() {
-		const match = (navigator.language || "").match(/[-_]([a-z]{2})$/iu);
-		return match?.[1].toUpperCase() ?? "US";
-	}
-
-	function requestSteamTitleLookup(title, language) {
-		return new Promise((resolve) => {
-			const query = new URLSearchParams({
-				term: title,
-				f: "games",
-				cc: getSteamLookupCountry(),
-				realm: "1",
-				l: language,
-			});
-			GM_xmlhttpRequest({
-				method: "GET",
-				url: "https://store.steampowered.com/search/suggest?" + query,
-				onload: function(response) {
-					if (response.status !== 200) {
-						console.error(`Steam title lookup failed with status ${response.status}.`);
-						resolve(null);
-						return;
-					}
-
-					try {
-						const parser = new DOMParser();
-						const doc = parser.parseFromString(response.responseText, "text/html");
-						resolve(chooseSteamSearchCandidate(title, extractSteamSearchCandidates(doc)));
-					} catch (error) {
-						console.error("Steam title lookup response could not be parsed.", error);
-						resolve(null);
-					}
-				},
-				onerror: function() {
-					console.error("Steam title lookup failed.");
-					resolve(null);
-				},
-				onabort: function() {
-					console.error("Steam title lookup was aborted.");
-					resolve(null);
-				},
-			});
-		});
-	}
-
-	function requestSteamDlcLookup(title, language) {
-		return new Promise((resolve) => {
-			const query = new URLSearchParams({
-				term: title,
-				category1: "21",
-				cc: getSteamLookupCountry(),
-				l: language,
-				json: "1",
-			});
-			GM_xmlhttpRequest({
-				method: "GET",
-				url: "https://store.steampowered.com/search/results/?" + query,
-				responseType: "json",
-				onload: function(response) {
-					if (response.status !== 200) {
-						console.error(`Steam DLC lookup failed with status ${response.status}.`);
-						resolve(null);
-						return;
-					}
-
-					try {
-						const data = response.response && typeof response.response === "object"
-							? response.response
-							: JSON.parse(response.responseText);
-						const parser = new DOMParser();
-						const doc = parser.parseFromString(data?.results_html ?? "", "text/html");
-						resolve(chooseSteamSearchCandidate(title, extractSteamSearchCandidates(doc)));
-					} catch (error) {
-						console.error("Steam DLC lookup response could not be parsed.", error);
-						resolve(null);
-					}
-				},
-				onerror: function() {
-					console.error("Steam DLC lookup failed.");
-					resolve(null);
-				},
-				onabort: function() {
-					console.error("Steam DLC lookup was aborted.");
-					resolve(null);
-				},
-			});
-		});
-	}
-
-	async function resolveSteamAppIdFromTitle(title) {
-		const languages = getSteamLookupLanguages();
-		const cache_key = `${languages.join(",")}:${normalizeGameTitle(title)}`;
-		if (title_appid_cache.has(cache_key)) {
-			return title_appid_cache.get(cache_key);
-		}
-
-		const lookup_titles = getSteamLookupTitles(title);
-		for (const lookup_title of lookup_titles) {
-			for (const language of languages) {
-				const appid = await requestSteamTitleLookup(lookup_title, language);
-				if (appid === null) {
-					return null;
-				}
-				if (appid) {
-					title_appid_cache.set(cache_key, appid);
-					return appid;
-				}
-			}
-		}
-
-		// Steam's suggestion endpoint is game-focused. Search the DLC category
-		// only after all game-title variants and languages have failed.
-		for (const lookup_title of lookup_titles) {
-			for (const language of languages) {
-				const appid = await requestSteamDlcLookup(lookup_title, language);
-				if (appid === null) {
-					return null;
-				}
-				if (appid) {
-					title_appid_cache.set(cache_key, appid);
-					return appid;
-				}
-			}
-		}
-
-		console.info(`BH: No conservative Steam title or DLC match found for "${title}".`);
-		title_appid_cache.set(cache_key, 0);
-		return 0;
-	}
-
 	// For sites that embed Steam CDN image URLs directly in <img> tags.
 	function markBySteamImageUrl(rootSelector, closestSelector) {
 		markElements({
 			rootSelector: rootSelector,
-			itemSelector: "img[src*='/steam/apps/'], img[srcset*='/steam/apps/']",
-			itemStringExtractor: (img) => img.srcset || img.src,
+			itemSelector: "img[src*='steamstatic.com/steam/apps/'], img[src*='cdn.akamai.steamstatic.com']",
+			itemStringExtractor: (img) => img.src,
 			closestSelector: closestSelector,
 		});
 	}
@@ -881,55 +564,39 @@ broader card selectors, srcset/Steam CDN detection, SteamDB data attributes,
 	function markBySteamHref(rootSelector, closestSelector) {
 		markElements({
 			rootSelector: rootSelector,
-			itemSelector: "a[href*='store.steampowered.com/app/'], a[href*='store.steampowered.com/sub/'], a[href*='steamcommunity.com/app/']",
+			itemSelector: "a[href*='store.steampowered.com/app/'], a[href*='store.steampowered.com/sub/']",
 			itemStringExtractor: (a) => a.href,
 			closestSelector: closestSelector,
 		});
 	}
 
-	function findSteamProductId(root) {
-		const selectors = [
-			"[data-ds-appid]",
-			"[data-appid]",
-			"[data-app-id]",
-			"[data-steam-app-id]",
-			"[data-subid]",
-			"[data-packageid]",
-			"[data-steam-sub-id]",
-			"a[href*='store.steampowered.com/app/']",
-			"a[href*='store.steampowered.com/sub/']",
-			"a[href*='steamcommunity.com/app/']",
-			"img[src*='/steam/apps/']",
-			"img[srcset*='/steam/apps/']",
-		];
-		const elements = [root];
-		for (const selector of selectors) {
-			elements.push(...root.querySelectorAll(selector));
-		}
-
-		for (const element of elements) {
-			for (const attribute of ["href", "src", "srcset"]) {
-				const value = element.getAttribute?.(attribute);
-				const ids = parseStringForSteamId(value ?? "");
-				if (ids.app || ids.sub) {
-					return ids;
+        const title_appid_cache = new Map();
+			function resolveTitle(title) {
+				if (title_appid_cache.has(title)) {
+					return Promise.resolve(title_appid_cache.get(title));
 				}
+				return new Promise((resolve) => {
+					GM_xmlhttpRequest({
+						method: "GET",
+						url: "https://store.steampowered.com/search/suggest?term=" + encodeURIComponent(title) + "&f=games&cc=US&realm=1&l=english",
+						onload: function(response) {
+							const parser = new DOMParser();
+							const doc = parser.parseFromString(response.responseText, "text/html");
+							const results = doc.querySelectorAll("a[data-ds-appid]");
+                                let appid = 0;
+                                for (const result of results) {
+                                        const resultTitle = result.querySelector(".match_name")?.textContent?.trim() ?? "";
+                                        if (resultTitle.toLowerCase() === title.toLowerCase()) { appid = Number(result.dataset?.dsAppid ?? 0); break; }
+                                }
+                                title_appid_cache.set(title, appid);
+                                resolve(appid);
+						},
+						onerror: function() {
+							resolve(0);
+						},
+					});
+				});
 			}
-			for (const attribute of ["data-ds-appid", "data-appid", "data-app-id", "data-steam-app-id"]) {
-				const app = Number.parseInt(element.getAttribute?.(attribute) ?? "", 10);
-				if (app > 0) {
-					return {app: app, sub: 0};
-				}
-			}
-			for (const attribute of ["data-subid", "data-packageid", "data-steam-sub-id"]) {
-				const sub = Number.parseInt(element.getAttribute?.(attribute) ?? "", 10);
-				if (sub > 0) {
-					return {app: 0, sub: sub};
-				}
-			}
-		}
-		return {app: 0, sub: 0};
-	}
 
 	const site_mapping = {
 		"astats.astats.nl": function() {
@@ -1009,6 +676,57 @@ broader card selectors, srcset/Steam CDN detection, SteamDB data attributes,
 					bottom: auto;
 				}
 			`);
+
+			// Intercepting fetch() requests.
+			// With help from:
+			// * https://blog.logrocket.com/intercepting-javascript-fetch-api-requests-responses/
+			// * https://stackoverflow.com/a/29293383
+			// Using unsafeWindow to access the page's window object:
+			// * https://violentmonkey.github.io/api/metadata-block/#inject-into
+			const original_fetch = unsafeWindow.fetch;
+			unsafeWindow.fetch = async function(...args) {
+				let [resource, options] = args;
+				const response = await original_fetch(resource, options);
+
+				// Replacing the .json() method.
+				const original_json = response.json;
+				if (original_json) {
+					response.json = function() {
+						const p = original_json.apply(this);
+						p.then((json_data) => {
+							if (!json_data) {
+								return;
+							}
+
+							// Page: https://www.fanatical.com/en/bundle/batman-arkham-collection
+							// AJAX: https://www.fanatical.com/api/products-group/batman-arkham-collection/en
+							for (const bundle of json_data.bundles ?? []) {
+								for (const game of bundle.games ?? []) {
+									if (game.cover && game.steam) {
+										fanatical_cover_map.set(game.cover, game.steam);
+									}
+								}
+							}
+
+							// Page: https://www.fanatical.com/en/pick-and-mix/build-your-own-bento-bundle
+							// AJAX: https://www.fanatical.com/api/pick-and-mix/build-your-own-bento-bundle/en
+							for (const game of json_data.products ?? []) {
+								if (game.cover && game.steam) {
+									fanatical_cover_map.set(game.cover, game.steam);
+								}
+							}
+
+							// Page: https://www.fanatical.com/en/game/the-last-of-us-part-i
+							// AJAX: https://www.fanatical.com/api/products-group/the-last-of-us-part-i/en
+							if (json_data.cover && json_data.steam) {
+								fanatical_cover_map.set(json_data.cover, json_data.steam);
+							}
+						});
+						return p;
+					}
+				}
+				return response;
+			};
 
 			// Setting a MutationObserver on the whole document is bad for
 			// performance, but I can't find any better way, given the website
@@ -1109,7 +827,7 @@ broader card selectors, srcset/Steam CDN detection, SteamDB data attributes,
 				});
 			});
 		},
-		"old.reddit.com": function() {
+		"reddit.com": function() {
 			document.body.classList.add("bh_basic_style");
 			debouncedMutationObserverSelectorAll(".content", function() {
 				markElements({
@@ -1223,254 +941,132 @@ broader card selectors, srcset/Steam CDN detection, SteamDB data attributes,
 			`);
 		},
 		"humblebundle.com": function() {
+            console.log("BH: humblebundle handler running");
 			document.body.classList.add("bh_basic_style");
 			GM_addStyle(`
-				.bh_humble_visual {
-					position: relative !important;
-				}
-				.bh_humble_card.bh_owned   .bh_humble_visual,
-				.bh_humble_card.bh_wished  .bh_humble_visual,
-				.bh_humble_card.bh_ignored .bh_humble_visual {
-					outline: 3px solid var(--bh-bgcolor);
-					outline-offset: -3px;
-				}
-				.bh_basic_style .bh_humble_card.bh_owned,
-				.bh_basic_style .bh_humble_card.bh_wished,
-				.bh_basic_style .bh_humble_card.bh_ignored {
-					background: unset !important;
-					box-shadow: none;
-				}
 				.bh_basic_style .tier-item-view.bh_owned   .img-container,
 				.bh_basic_style .tier-item-view.bh_wished  .img-container,
 				.bh_basic_style .tier-item-view.bh_ignored .img-container {
 					outline: 3px solid var(--bh-bgcolor);
 					outline-offset: -3px;
 				}
-				.bh_humble_visual > .bh_steamlink {
+				.bh_basic_style .tier-item-view.bh_owned,
+				.bh_basic_style .tier-item-view.bh_wished,
+				.bh_basic_style .tier-item-view.bh_ignored {
+					background: unset;
+					box-shadow: none;
+				}
+				.tier-item-view .img-container {
+					position: relative;
+				}
+				.tier-item-view .img-container .bh_steamlink {
 					position: absolute;
 					bottom: 4px;
 					right: 4px;
 					z-index: 10;
 				}
-				.bh_humble_card.bh_owned .item-flavor-text,
-				.bh_humble_card.bh_wished .item-flavor-text,
-				.bh_humble_card.bh_ignored .item-flavor-text {
+				.tier-item-view.bh_owned .item-flavor-text,
+				.tier-item-view.bh_wished .item-flavor-text,
+				.tier-item-view.bh_ignored .item-flavor-text {
 					color: #ccc !important;
 				}
 			`);
 
-			const title_selector = [
-				".tier-item-view .item-title",
-				".item-title",
-				".content-choice-title .entity-title",
-				".dd-image-box-caption .dd-image-box-text",
-				"[class*='content-choice'] [class*='title']",
-				".game-name h4",
-				".game-name",
-			].join(", ");
-			const card_selector = [
-				".tier-item-view",
-				"[class*='tier-item']",
-				".content-choice-view",
-				"[class*='content-choice-item']",
-				"[class*='content-choice-card']",
-				".dd-image-box",
-				".game-name",
-				"article",
-				"li",
-			].join(", ");
-			const visual_selector = [
-				".img-container",
-				".dd-image-box-image",
-				"[class*='image-container']",
-				"[class*='image-wrapper']",
-				"[class*='cover']",
-			].join(", ");
 
-			let processing_titles = false;
 
-			async function processTitles() {
-				if (processing_titles) {
-					return;
-				}
-
-				processing_titles = true;
-				let found_titles = 0;
-				let resolved_titles = 0;
-				try {
-					const seen_cards = new Set();
-					for (const title_element of document.querySelectorAll(title_selector)) {
-						const card = title_element.closest(".tier-item-view") ?? title_element.closest(card_selector) ?? title_element.closest("a") ?? title_element.parentElement;
-						if (!card || seen_cards.has(card) || card.classList.contains("bh_already_processed")) {
-							continue;
+			function processTiles() {
+				console.log("BH: processTiles called, tiles found:", document.querySelectorAll(".tier-item-view:not(.bh_already_processed)").length);
+				for (const tile of document.querySelectorAll(".tier-item-view:not(.bh_already_processed)")) {
+					tile.classList.add("bh_already_processed");
+					const title_elem = tile.querySelector(".item-title");
+					if (!title_elem) continue;
+					const title = ([...title_elem.childNodes].filter(n => n.nodeType === Node.TEXT_NODE).map(n => n.textContent.trim()).join("")).trim();
+					resolveTitle(title).then((appid) => {
+						if (!appid) return;
+						tile.classList.remove("bh_owned", "bh_wished", "bh_ignored");
+						const cssClass = getClassForAppId(appid);
+						if (cssClass) tile.classList.add(cssClass);
+						const img_container = tile.querySelector(".img-container");
+						if (img_container && !img_container.querySelector(".bh_steamlink")) {
+							img_container.appendChild(createSteamLink("app", appid));
 						}
-						seen_cards.add(card);
-						card.classList.add("bh_humble_card");
-						found_titles++;
-
-						const title = title_element.textContent?.trim() ?? "";
-						if (!title) {
-							continue;
-						}
-
-						const direct_id = findSteamProductId(card);
-						let app = direct_id.app;
-						const sub = direct_id.sub;
-
-						if (!app && !sub) {
-							app = await resolveSteamAppIdFromTitle(title);
-							if (app === null) {
-								continue;
-							}
-						}
-
-						const product_id = app || sub;
-						if (product_id) {
-							resolved_titles++;
-							card.classList.remove("bh_owned", "bh_wished", "bh_ignored");
-							const cssClass = getClassForAppId(app) || getClassForSubId(sub);
-							if (cssClass) {
-								card.classList.add(cssClass);
-							}
-							console.info(`BH Humble: "${title}" -> ${app ? "app" : "sub"} ${product_id} -> ${cssClass || "not owned, wishlisted or ignored"}`);
-
-							const visual = card.querySelector(".img-container") ?? card.querySelector(visual_selector) ?? title_element.parentElement;
-							if (visual) {
-								visual.classList.add("bh_humble_visual");
-								if (!visual.querySelector(".bh_steamlink")) {
-									visual.appendChild(createSteamLink(app ? "app" : "sub", product_id));
-								}
-							}
-						}
-
-						card.classList.add("bh_already_processed");
-					}
-				} finally {
-					processing_titles = false;
-					const total_cards = document.querySelectorAll(".bh_humble_card").length;
-					const matched_cards = document.querySelectorAll(".bh_humble_card .bh_steamlink").length;
-					const status_output = document.querySelector("bundle-helper")?.shadowRoot?.querySelector("#siteStatus");
-					if (status_output) {
-						status_output.hidden = false;
-						status_output.textContent = `Humble: ${total_cards} items found, ${matched_cards} matched to Steam.`;
-					}
-					console.info(`BH Humble: ${found_titles} new item cards found, ${resolved_titles} Steam products resolved; ${total_cards} total.`);
+					});
 				}
 			}
 
-			void processTitles();
-			debouncedMutationObserverSelectorAll("body", () => void processTitles(), 1000);
+			console.log("BH: setting up observer, body exists:", !!document.body);
+			processTiles();
+			debouncedMutationObserverSelectorAll("body", processTiles, 2000);
 		},
 		"hrkgame.com": function() {
 			document.body.classList.add("bh_basic_style");
-			debouncedMutationObserverSelectorAll("body", () => {
-				markBySteamHref("body", ".product-item, article, li");
-				markBySteamImageUrl("body", ".product-item, article, li");
-			}, 1000);
+			debouncedMutationObserverSelectorAll("body", () =>
+				markBySteamHref("body", ".product-item, article, li")
+			, 1000);
 		},
 		"gameseal.com": function() {
 			document.body.classList.add("bh_basic_style");
-			debouncedMutationObserverSelectorAll("body", () => {
-				markBySteamHref("body", ".product, .game-card, article, li");
-				markBySteamImageUrl("body", ".product, .game-card, article, li");
-			}, 1000);
+			markBySteamHref("body", ".product, .game-card, article, li");
 		},
-		"itch.io": function() {
-			document.body.classList.add("bh_basic_style");
-			GM_addStyle(`
-				.bh_basic_style .index_game_cell_widget.bh_owned   { outline: 3px solid var(--bh-bgcolor); outline-offset: -3px; }
-				.bh_basic_style .index_game_cell_widget.bh_wished  { outline: 3px solid var(--bh-bgcolor); outline-offset: -3px; }
-				.bh_basic_style .index_game_cell_widget.bh_ignored { outline: 3px solid var(--bh-bgcolor); outline-offset: -3px; }
-			`);
+                "itch.io": function() {
+                        document.body.classList.add("bh_basic_style");
+                        GM_addStyle(`
+                                .bh_basic_style .index_game_cell_widget.bh_owned   { outline: 3px solid var(--bh-bgcolor); outline-offset: -3px; }
+                                .bh_basic_style .index_game_cell_widget.bh_wished  { outline: 3px solid var(--bh-bgcolor); outline-offset: -3px; }
+                                .bh_basic_style .index_game_cell_widget.bh_ignored { outline: 3px solid var(--bh-bgcolor); outline-offset: -3px; }
+                        `);
 
-			let processing_itch = false;
+                        function processItchTiles() {
+                                const tiles = document.querySelectorAll(".index_game_cell_widget.game_cell:not(.bh_already_processed)");
+                                console.log("BH itch.io: processItchTiles called, tiles found:", tiles.length);
+                                for (const tile of tiles) {
+                                        tile.classList.add("bh_already_processed");
+                                        const title_elem = tile.querySelector(".game_title, .title");
+                                        if (!title_elem) continue;
+                                        const title = ([...title_elem.childNodes].filter(n => n.nodeType === Node.TEXT_NODE).map(n => n.textContent.trim()).join("")).trim();
+                                        resolveTitle(title).then((appid) => {
+                                                if (!appid) return;
+                                                tile.classList.remove("bh_owned", "bh_wished", "bh_ignored");
+                                                const cssClass = getClassForAppId(appid);
+                                                if (cssClass) tile.classList.add(cssClass);
+                                                const thumb = tile.querySelector("a.game_thumb");
+                                                if (thumb && !thumb.querySelector(".bh_steamlink")) {
+                                                        const link = createSteamLink("app", appid);
+                                                        link.style.position = "absolute";
+                                                        link.style.bottom = "4px";
+                                                        link.style.right = "4px";
+                                                        link.style.zIndex = "10";                                                        thumb.appendChild(link);
+                                                }
+                                        });
+                                }
+                        }
 
-			async function processItchTiles() {
-				if (processing_itch) {
-					return;
-				}
-				processing_itch = true;
-				try {
-					const tiles = document.querySelectorAll(".index_game_cell_widget.game_cell:not(.bh_already_processed)");
-					for (const tile of tiles) {
-						let {app, sub} = findSteamProductId(tile);
-
-						// itch.io tiles almost never contain Steam IDs, so fall back
-						// to a conservative title lookup.
-						if (!app && !sub) {
-							const title = tile.querySelector(".game_title, .title")?.textContent?.trim() ?? "";
-							if (!title) {
-								// Title not rendered yet; leave the tile retryable.
-								continue;
-							}
-							app = await resolveSteamAppIdFromTitle(title);
-							if (app === null) {
-								// Lookup failed (network/HTTP error); retry later.
-								continue;
-							}
-						}
-
-						tile.classList.add("bh_already_processed");
-						const product_id = app || sub;
-						if (!product_id) {
-							continue;
-						}
-
-						tile.classList.remove("bh_owned", "bh_wished", "bh_ignored");
-						const cssClass = getClassForAppId(app) || getClassForSubId(sub);
-						if (cssClass) {
-							tile.classList.add(cssClass);
-						}
-
-						const thumb = tile.querySelector("a.game_thumb");
-						if (thumb && !thumb.querySelector(".bh_steamlink")) {
-							const link = createSteamLink(app ? "app" : "sub", product_id);
-							link.style.position = "absolute";
-							link.style.bottom = "4px";
-							link.style.right = "4px";
-							link.style.zIndex = "10";
-							thumb.appendChild(link);
-						}
-					}
-				} finally {
-					processing_itch = false;
-				}
-			}
-
-			void processItchTiles();
-			debouncedMutationObserverSelectorAll("body", () => void processItchTiles(), 2000);
-		},
+                        // Retry loop: tiles load after script fires, keep trying for 10 seconds
+                        let _itchRetries = 0;
+                        function _itchRetry() {
+                                processItchTiles();
+                                if (document.querySelectorAll(".index_game_cell_widget.game_cell").length === 0 && _itchRetries++ < 10) {
+                                        setTimeout(_itchRetry, 1000);
+                                }
+                        }
+                        _itchRetry();
+                        debouncedMutationObserverSelectorAll("body", processItchTiles, 2000);
+                },
 		"tiltify.com": function() {
 			document.body.classList.add("bh_basic_style");
-			debouncedMutationObserverSelectorAll("body", () => {
-				markBySteamHref("body", ".reward-card, article, li");
-				markBySteamImageUrl("body", ".reward-card, article, li");
-			}, 2000);
+			debouncedMutationObserverSelectorAll("body", () =>
+				markBySteamHref("body", ".reward-card, article, li")
+			, 2000);
 		},
 		"steamdb.info": function() {
 			document.body.classList.add("bh_basic_style");
-			debouncedMutationObserverSelectorAll("body", () => {
-				markElements({
-					rootSelector: "body",
-					itemSelector: "[data-appid]",
-					itemStringExtractor: (element) => "/app/" + element.dataset.appid,
-					closestSelector: "tr, .app, li",
-				});
-				markElements({
-					rootSelector: "body",
-					itemSelector: "[data-subid]",
-					itemStringExtractor: (element) => "/sub/" + element.dataset.subid,
-					closestSelector: "tr, .package, li",
-				});
-				markBySteamHref("body", "tr, .app, .package, li");
-			}, 1000);
+			markBySteamHref("body", "tr, .app, li");
 		},
 		"g2a.com": function() {
 			document.body.classList.add("bh_basic_style");
-			debouncedMutationObserverSelectorAll("body", () => {
-				markBySteamHref("body", "[class*='tile'], [class*='card'], article, li");
-				markBySteamImageUrl("body", "[class*='tile'], [class*='card'], article, li");
-			}, 2000);
+			debouncedMutationObserverSelectorAll("body", () =>
+				markBySteamHref("body", "[class*='tile'], [class*='card'], article, li")
+			, 2000);
 		},
 	};
 
@@ -1478,14 +1074,11 @@ broader card selectors, srcset/Steam CDN detection, SteamDB data attributes,
 		let hostname = document.location.hostname;
 		// Removing the www. prefix, if present.
 		hostname = hostname.replace(/^www\./, "");
-		if (hostname.endsWith(".itch.io")) {
-			hostname = "itch.io";
-		}
 		// Calling the site-specific code, if found.
 		site_mapping[hostname]?.();
 	}
 
-	async function main() {
+	function main() {
 		GM_addStyle(`
 			bundle-helper {
 				position: fixed;
@@ -1533,29 +1126,12 @@ broader card selectors, srcset/Steam CDN detection, SteamDB data attributes,
 		`);
 
 		// Adding some statistics to the corner of the screen.
-		const UI = addBundleHelperUI();
-
-		try {
-			await updateProfileCacheIfExpired();
-		} catch (error) {
-			console.error("BH: Steam profile initialization failed.", error);
-		}
-		UI.update();
-
-		if (!hasValidProfileCache()) {
-			console.error("BH: Site processing skipped because no valid Steam profile data is available.");
-			return;
-		}
+		addBundleHelperUI();
 
 		// Run site-specific code.
 		processSite();
 	}
 
-	installFanaticalFetchInterceptor();
-	if (document.readyState === "loading") {
-		document.addEventListener("DOMContentLoaded", main, {once: true});
-	} else {
-		main();
-	}
+	main();
 
 })();

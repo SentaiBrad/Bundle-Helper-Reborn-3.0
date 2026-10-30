@@ -42,7 +42,7 @@ Updates are picked up automatically from this repository.
 - HRK Game
 - Tiltify
 
-Title matching is deliberately conservative. Titles are compared after ignoring ™/®, accents, punctuation and "&" vs "and". "Standard Edition" is treated as the base game, and DLC is searched if no game matches. Anything that isn't an exact match is left unmarked rather than guessed.
+Title matching only accepts an exact (case-insensitive) match from Steam's store search. Anything else is left unmarked rather than guessed.
 
 ## Privacy
 
@@ -61,7 +61,7 @@ Bundle Helper Reborn 3.0 is the latest step in a line of forks:
 3. [Bundle Helper Reborn 2.0 - Extended](https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7) by SentaiBrad: added Humble Bundle, itch.io, SteamDB, Tiltify, HRK Game, GameSeal and G2A
 4. Bundle Helper Reborn 3.0 by SentaiBrad: moved to a full repository so changes can be contributed back
 
-3.0 includes improvements from [Bundle Dude](https://gist.github.com/DickHorner/cc55aa516c389b11b93661a49f9e658a) by J Luetkens (DickHorner), a GPL-3.0 fork of the 2.0 Extended script. See [CHANGELOG.md](CHANGELOG.md) for details.
+Other forks of the 2.0 Extended script exist, such as [Bundle Dude](https://gist.github.com/DickHorner/cc55aa516c389b11b93661a49f9e658a) by J Luetkens (DickHorner). See [CHANGELOG.md](CHANGELOG.md) for history.
 
 ## License
 

@@ -1,5 +1,10 @@
 # Changelog
 
+## 3.0.2
+
+- **Back to the working 2.0 code.** 3.0.0 and 3.0.1 were built on a merge with Bundle Dude 2.9.13, and Humble Bundle tiles stopped being colored. 3.0.2 uses the last working 2.0 Extended code (2.9.6) unchanged. Only the name, update links and credits are new.
+- Fixes and improvements will now be added one at a time and tested on live sites. Ideas from the Bundle Dude merge are tracked as separate candidates.
+
 ## 3.0.1
 
 - Humble Bundle: restored 2.0's tile coloring. Uses Humble's own tile and image elements again, and the background override now applies.
