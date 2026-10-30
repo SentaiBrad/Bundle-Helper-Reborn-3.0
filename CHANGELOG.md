@@ -1,5 +1,13 @@
 # Changelog
 
+## 3.0.10
+
+- **Package lookup fix.** Steam's app details answered with an empty package list when asked only for `package_groups`. The script now asks for `basic,packages,package_groups`, which returns the list, and also accepts the answer when the userscript manager delivers it as text (Tampermonkey on Firefox). Found from the debug report: `packages of 21090 -> []`.
+- Saved lookups are discarded once so those misses are retried.
+- **Debug view has tabs:** Overview, Log and Steam API. **[copy]** stays visible and always copies the full report (all tabs, the whole log).
+- Expanded views (debug, Steam settings) keep the panel's normal width and wrap their text instead of widening the panel. The debug text scrolls past 40% of the window height; nothing is cut off.
+- Steam API tab: key status and format, plus request and error counters ready for future API features (`steam_api.noteRequest`).
+
 ## 3.0.9
 
 - **Steam button** in the corner panel opens Steam settings. For now it only has an optional Steam Web API key field (save, clear, shows the last 4 characters). The key is stored in the userscript manager and is **not used by anything yet**. It's never written to the log or the debug report.

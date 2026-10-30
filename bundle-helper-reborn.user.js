@@ -2,7 +2,7 @@
 // @name            Bundle Helper Reborn 3.0
 // @namespace       https://github.com/SentaiBrad/
 // @author          SentaiBrad
-// @version         3.0.9
+// @version         3.0.10
 // @description     Marks owned/ignored/wishlisted games on several sites, and also adds a button to open the steam page for each game.
 // @match           *://dailyindiegame.com/*
 // @match           *://old.reddit.com/*
@@ -386,6 +386,18 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 
 	const steam_api = {
 		storage_name: "bh_steam_api_key",
+		// Filled in by future API calls; shown on the debug panel's Steam API tab.
+		stats: {requests: 0, failures: 0, last_request: "", last_error: ""},
+		// Future API calls should report through this (never pass the key in `what`).
+		noteRequest(what, ok, error) {
+			this.stats.requests++;
+			this.stats.last_request = `${new Date().toLocaleTimeString()} ${what}`;
+			if (!ok) {
+				this.stats.failures++;
+				this.stats.last_error = `${new Date().toLocaleTimeString()} ${what}: ${error ?? "failed"}`;
+			}
+			debug_log.add(ok ? "api" : "error", `Steam API ${what}${ok ? "" : ": " + (error ?? "failed")}`);
+		},
 		getKey() {
 			return String(GM_getValue(this.storage_name, "") || "");
 		},
@@ -438,6 +450,7 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 
 	const panel_base_css = `
 		.container {
+			display: inline-block;
 			background: #1b2838;
 			color: #ddd;
 			padding: 0.5em;
@@ -461,6 +474,16 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 		.right {
 			float: right;
 			margin-left: 0.5em;
+		}
+		/* Expanded views (debug, Steam settings) take the panel's existing width
+		   instead of widening it, and wrap their text. */
+		.view {
+			margin-top: 0.4em;
+			padding-top: 0.4em;
+			border-top: 1px solid #556;
+			width: 0;
+			min-width: 100%;
+			overflow-wrap: anywhere;
 		}
 	`;
 
@@ -570,40 +593,59 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 	});
 
 	// Section: debug report, opened by the bug button. Hidden by default.
+	// Tabs show parts of the report; [copy] always copies the whole report.
 	addPanelSection({
 		id: "debug",
 		html: `
 			<div id="debug" class="view" hidden>
-				<p class="debug-actions">
-					<a href="javascript:;" id="debug-copy">[copy]</a>
-					<a href="javascript:;" id="debug-refresh">[refresh]</a>
-					<span id="debug-copied"></span>
+				<p class="tabs">
+					<a href="javascript:;" class="tab" data-tab="overview">Overview</a>
+					<a href="javascript:;" class="tab" data-tab="log">Log</a>
+					<a href="javascript:;" class="tab" data-tab="api">Steam API</a>
+					<span class="right">
+						<span id="debug-copied"></span>
+						<a href="javascript:;" id="debug-refresh">[refresh]</a>
+						<a href="javascript:;" id="debug-copy" title="Copy the full report (all tabs)">[copy]</a>
+					</span>
 				</p>
 				<pre id="debug-text"></pre>
 			</div>
 		`,
 		css: `
-			.view {
-				margin-top: 0.4em;
-				padding-top: 0.4em;
-				border-top: 1px solid #556;
+			.tab {
+				padding: 0 0.3em;
+				border-radius: 3px;
+			}
+			.tab.active {
+				background: #2a475e;
+				color: #fff;
 			}
 			#debug-text {
 				margin: 0.4em 0 0 0;
-				max-height: 50vh;
-				max-width: min(60vw, 720px);
-				overflow: auto;
+				max-height: 40vh;
+				overflow-y: auto;
 				white-space: pre-wrap;
-				word-break: break-word;
+				overflow-wrap: anywhere;
 				font: 11px monospace;
 				user-select: text;
 			}
 		`,
 		init(panel) {
-			const view = panel.$("#debug");
+			let current_tab = "overview";
 			const show = () => {
-				panel.$("#debug-text").textContent = buildDebugReport();
+				for (const tab of panel.shadow.querySelectorAll(".tab")) {
+					tab.classList.toggle("active", tab.dataset.tab === current_tab);
+				}
+				panel.$("#debug-text").textContent = buildDebugReport(current_tab);
 			};
+			panel.showDebugTab = show;
+			for (const tab of panel.shadow.querySelectorAll(".tab")) {
+				tab.addEventListener("click", (ev) => {
+					ev.preventDefault();
+					current_tab = tab.dataset.tab;
+					show();
+				});
+			}
 			panel.$("#debug-toggle").addEventListener("click", (ev) => {
 				ev.preventDefault();
 				panel.toggleView("debug");
@@ -614,25 +656,27 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 			});
 			panel.$("#debug-copy").addEventListener("click", (ev) => {
 				ev.preventDefault();
-				show();
-				const text = panel.$("#debug-text").textContent;
+				const text = buildDebugReport("all");
 				const done = (message) => {
 					panel.$("#debug-copied").textContent = message;
 					setTimeout(() => panel.$("#debug-copied").textContent = "", 3000);
 				};
-				navigator.clipboard?.writeText(text).then(() => done("copied"), () => {
-					// Clipboard blocked: select the text so Ctrl+C works.
+				const fallback = () => {
+					// Clipboard blocked: show the full report and select it so Ctrl+C works.
+					panel.$("#debug-text").textContent = text;
 					const range = document.createRange();
 					range.selectNodeContents(panel.$("#debug-text"));
 					const selection = window.getSelection();
 					selection.removeAllRanges();
 					selection.addRange(range);
 					done("selected, press Ctrl+C");
-				}) ?? done("clipboard unavailable");
+				};
+				if (navigator.clipboard?.writeText) navigator.clipboard.writeText(text).then(() => done("copied"), fallback);
+				else fallback();
 			});
 		},
 		update(panel) {
-			if (!panel.$("#debug").hidden) panel.$("#debug-text").textContent = buildDebugReport();
+			if (!panel.$("#debug").hidden) panel.showDebugTab();
 		},
 	});
 
@@ -645,7 +689,9 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 				<p><b>Steam Web API key</b> (optional, not used yet)</p>
 				<p>Status: <output id="api-key-status"></output></p>
 				<p>
-					<input id="api-key-input" type="password" autocomplete="off" spellcheck="false" placeholder="32-character key" size="34">
+					<input id="api-key-input" type="password" autocomplete="off" spellcheck="false" placeholder="32-character key">
+				</p>
+				<p>
 					<a href="javascript:;" id="api-key-save">[save]</a>
 					<a href="javascript:;" id="api-key-clear">[clear]</a>
 				</p>
@@ -654,6 +700,8 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 		`,
 		css: `
 			#api-key-input {
+				box-sizing: border-box;
+				width: 100%;
 				font: 11px monospace;
 				background: #0e1621;
 				color: #ddd;
@@ -701,67 +749,90 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 	});
 
 	// Plain-text report: [Section] headers and "Setting = value" lines.
-	function buildDebugReport() {
+	// tab: "overview", "log", "api" or "all" (everything, used by [copy]).
+	function buildDebugReport(tab = "all") {
 		const lines = [];
-		const section = (name) => lines.push("", `[${name}]`);
+		const section = (name) => {
+			if (lines.length) lines.push("");
+			lines.push(`[${name}]`);
+		};
 		const value = (name, val) => lines.push(`${name} = ${val}`);
 		const count = (selector) => document.querySelectorAll(selector).length;
-
+		const want = (name) => tab === "all" || tab === name;
 		const info = (typeof GM_info !== "undefined") ? GM_info : null;
-		lines.push("Bundle Helper Reborn debug report");
-		value("Generated", new Date().toISOString());
 
-		section("Script");
-		value("Version", info?.script?.version ?? "unknown");
-		value("Manager", info ? `${info.scriptHandler ?? "unknown"} ${info.version ?? ""}`.trim() : "unknown");
-		value("Update URL", info?.script?.updateURL || info?.script?.downloadURL || info?.scriptUpdateURL || "unknown");
-		value("Injection mode", info?.sandboxMode ?? info?.injectInto ?? "unknown");
-		value("Page", location.origin + location.pathname);
-		value("Page at script start", location.href === debug_state.url_at_start ? "same" : `${debug_state.url_at_start} (the site changed pages without reloading)`);
-		value("Site handler", debug_state.site_handler || "none (this host has no handler)");
-		value("Browser", navigator.userAgent);
-		value("Script started", `${debug_state.started_ms} ms after the page started loading`);
-		value("First item marked", debug_state.first_mark_ms === null ? "not yet" : `${debug_state.first_mark_ms} ms after the page started loading`);
-		value("Steam Web API key", steam_api.hasKey() ? "set (not used yet)" : "not set");
-
-		section("Steam data");
-		const sets = getCachedSets();
-		const fetched = GM_getValue(cachename_profile_time, 0);
-		value("Last fetched", fetched ? `${new Date(fetched * 1000).toISOString()} (${getProfileCacheAge()} ago)` : "never");
-		value("Fetch on this page", debug_state.steam_fetch);
-		value("Owned apps", sets.ownedApps.size);
-		value("Owned packages", sets.ownedPackages.size);
-		value("Wishlisted apps", sets.wishlist.size);
-		value("Ignored apps", sets.ignoredApps.size);
-		value("Ignored packages", sets.ignoredPackages.size);
-		if (!sets.ownedApps.size) value("Warning", "no owned apps saved; sign in at store.steampowered.com, then click 'last fetched'");
-
-		section("Title lookups");
-		const cache = loadTitleCache();
-		const saved = Object.values(cache);
-		value("Saved format version", title_cache_version);
-		value("Saved matches", saved.filter((e) => e.match).length);
-		value("Saved misses", saved.filter((e) => !e.match).length);
-		value("Log lines this page", debug_log.count("lookup"));
-
-		section("This page");
-		value("Marked owned", count(".bh_owned"));
-		value("Marked wishlisted", count(".bh_wished"));
-		value("Marked ignored", count(".bh_ignored"));
-		value("Steam buttons", count(".bh_steamlink"));
-		value("Processed elements", count(".bh_already_processed"));
-		value("Page watchers", active_mutation_observers.length);
-		const duplicates = [...document.querySelectorAll(".bh_already_processed")].filter((el) => el.querySelectorAll(".bh_steamlink").length > 1).length;
-		value("Items with more than one Steam button", duplicates);
-		if (debug_state.site_handler === "fanatical.com") {
-			value("Fanatical fetch hook", debug_state.fetch_hook);
-			value("Fanatical covers with Steam data", `${fanatical_cover_map.size}${fanatical_cover_map.size ? "" : " (0 after the page loaded means the hook isn't seeing Fanatical's data)"}`);
+		if (tab === "all") {
+			lines.push("Bundle Helper Reborn debug report");
+			value("Generated", new Date().toISOString());
 		}
-		value("Errors this page", debug_log.count("error"));
 
-		section("Log (newest last)");
-		for (const entry of debug_log.entries.slice(-80)) {
-			lines.push(`${entry.time.toLocaleTimeString()} ${entry.category}: ${entry.message}`);
+		if (want("overview")) {
+			section("Script");
+			value("Version", info?.script?.version ?? "unknown");
+			value("Manager", info ? `${info.scriptHandler ?? "unknown"} ${info.version ?? ""}`.trim() : "unknown");
+			value("Update URL", info?.script?.updateURL || info?.script?.downloadURL || info?.scriptUpdateURL || "unknown");
+			value("Injection mode", info?.sandboxMode ?? info?.injectInto ?? "unknown");
+			value("Page", location.origin + location.pathname);
+			value("Page at script start", location.href === debug_state.url_at_start ? "same" : `${debug_state.url_at_start} (the site changed pages without reloading)`);
+			value("Site handler", debug_state.site_handler || "none (this host has no handler)");
+			value("Browser", navigator.userAgent);
+			value("Script started", `${debug_state.started_ms} ms after the page started loading`);
+			value("First item marked", debug_state.first_mark_ms === null ? "not yet" : `${debug_state.first_mark_ms} ms after the page started loading`);
+
+			section("Steam data");
+			const sets = getCachedSets();
+			const fetched = GM_getValue(cachename_profile_time, 0);
+			value("Last fetched", fetched ? `${new Date(fetched * 1000).toISOString()} (${getProfileCacheAge()} ago)` : "never");
+			value("Fetch on this page", debug_state.steam_fetch);
+			value("Owned apps", sets.ownedApps.size);
+			value("Owned packages", sets.ownedPackages.size);
+			value("Wishlisted apps", sets.wishlist.size);
+			value("Ignored apps", sets.ignoredApps.size);
+			value("Ignored packages", sets.ignoredPackages.size);
+			if (!sets.ownedApps.size) value("Warning", "no owned apps saved; sign in at store.steampowered.com, then click 'last fetched'");
+
+			section("Title lookups");
+			const saved = Object.values(loadTitleCache());
+			value("Saved format version", title_cache_version);
+			value("Saved matches", saved.filter((e) => e.match).length);
+			value("Saved misses", saved.filter((e) => !e.match).length);
+			value("Log lines this page", debug_log.count("lookup"));
+
+			section("This page");
+			value("Marked owned", count(".bh_owned"));
+			value("Marked wishlisted", count(".bh_wished"));
+			value("Marked ignored", count(".bh_ignored"));
+			value("Steam buttons", count(".bh_steamlink"));
+			value("Processed elements", count(".bh_already_processed"));
+			value("Page watchers", active_mutation_observers.length);
+			const duplicates = [...document.querySelectorAll(".bh_already_processed")].filter((el) => el.querySelectorAll(".bh_steamlink").length > 1).length;
+			value("Items with more than one Steam button", duplicates);
+			if (debug_state.site_handler === "fanatical.com") {
+				value("Fanatical fetch hook", debug_state.fetch_hook);
+				value("Fanatical covers with Steam data", `${fanatical_cover_map.size}${fanatical_cover_map.size ? "" : " (0 after the page loaded means the hook isn't seeing Fanatical's data)"}`);
+			}
+			value("Errors this page", debug_log.count("error"));
+		}
+
+		if (want("api")) {
+			section("Steam API");
+			const key = steam_api.getKey();
+			value("Key", key ? `set (ends in ${key.slice(-4)})` : "not set");
+			value("Key format", key ? (steam_api.isValidFormat(key) ? "valid (32 hex characters)" : "INVALID") : "n/a");
+			value("Used by", "nothing yet");
+			value("Requests this page", steam_api.stats.requests);
+			value("Failed requests", steam_api.stats.failures);
+			value("Last request", steam_api.stats.last_request || "none");
+			value("Last error", steam_api.stats.last_error || "none");
+		}
+
+		if (want("log")) {
+			section("Log (newest last)");
+			const entries = debug_log.entries;
+			for (const entry of entries) {
+				lines.push(`${entry.time.toLocaleTimeString()} ${entry.category}: ${entry.message}`);
+			}
+			if (!entries.length) lines.push("(empty)");
 		}
 		return lines.join("\n");
 	}
@@ -999,7 +1070,7 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 	// 1 day. Changing title_cache_version discards everything (e.g. after the
 	// matching rules change, so old misses get another chance).
 	const title_cache_name = "bh_title_cache";
-	const title_cache_version = 3;
+	const title_cache_version = 4;
 	const title_cache_match_days = 30;
 	const title_cache_miss_days = 1;
 	let title_cache = null;
@@ -1066,10 +1137,20 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 	// "FEAR: Ultimate Shooter Edition" (package 4384) and "FEAR Collection" (12357).
 	// Resolves to [{appid: packageid, title}] or null on error.
 	async function getSteamPackages(appid) {
-		const response = await steamGet("https://store.steampowered.com/api/appdetails?appids=" + appid + "&filters=package_groups&cc=us&l=english", "json");
+		// "basic,packages,package_groups" is the combination verified to return the
+		// package list; asking for package_groups alone came back empty (3.0.9).
+		const response = await steamGet("https://store.steampowered.com/api/appdetails?appids=" + appid + "&filters=basic,packages,package_groups&cc=us&l=english", "json");
 		if (!response) return null;
+		let json = response.response;
+		if (typeof json === "string" || !json) {
+			try { json = JSON.parse(response.responseText); } catch { json = null; }
+		}
+		const details = json?.[appid];
+		if (!details?.success) {
+			debug_log.add("lookup", `app details for ${appid}: Steam answered success=${details?.success ?? "missing"}`);
+		}
 		const packages = [];
-		for (const group of response.response?.[appid]?.data?.package_groups ?? []) {
+		for (const group of details?.data?.package_groups ?? []) {
 			for (const sub of group.subs ?? []) {
 				// option_text looks like "FEAR: Ultimate Shooter Edition - $9.99"
 				const name = String(sub.option_text ?? "").replace(/<[^>]*>/g, "").replace(/\s+-\s+[^-]*(\d|free)[^-]*$/i, "").trim();
