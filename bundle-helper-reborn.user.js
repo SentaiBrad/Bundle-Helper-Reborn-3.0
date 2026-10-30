@@ -1,0 +1,1554 @@
+// ==UserScript==
+// @name            Bundle Helper Reborn 3.0
+// @namespace       https://github.com/SentaiBrad/
+// @author          SentaiBrad
+// @version         3.0.0
+// @description     Marks owned/ignored/wishlisted games on several sites, and also adds a button to open the steam page for each game.
+// @match           *://dailyindiegame.com/*
+// @match           *://old.reddit.com/*
+// @match           *://sgtools.info/*
+// @match           *://www.sgtools.info/*
+// @match           *://steamgifts.com/*
+// @match           *://www.steamgifts.com/*
+// @match           *://astats.astats.nl/*
+// @match           *://www.fanatical.com/*
+// @match           *://fanatical.com/*
+// @match           *://www.indiegala.com/*
+// @match           *://indiegala.com/*
+// @match           *://www.humblebundle.com/*
+// @match           *://humblebundle.com/*
+// @match           *://steamdb.info/*
+// @match           *://www.steamdb.info/*
+// @match           *://steamground.com/*
+// @match           *://www.steamground.com/*
+// @match           *://hrkgame.com/*
+// @match           *://www.hrkgame.com/*
+// @match           *://gameseal.com/*
+// @match           *://www.gameseal.com/*
+// @match           *://itch.io/*
+// @match           *://*.itch.io/*
+// @match           *://tiltify.com/*
+// @match           *://www.tiltify.com/*
+// @match           *://g2a.com/*
+// @match           *://www.g2a.com/*
+// @run-at          document-start
+// @grant           GM_addStyle
+// @grant           GM_getValue
+// @grant           GM_setValue
+// @grant           GM_xmlhttpRequest
+// @grant           unsafeWindow
+// @connect         store.steampowered.com
+// @icon            https://store.steampowered.com/favicon.ico
+// @license         GPL-3.0-only
+// @homepageURL     https://github.com/SentaiBrad/Bundle-Helper-Reborn-3.0
+// @supportURL      https://github.com/SentaiBrad/Bundle-Helper-Reborn-3.0/issues
+// @downloadURL https://raw.githubusercontent.com/SentaiBrad/Bundle-Helper-Reborn-3.0/main/bundle-helper-reborn.user.js
+// @updateURL   https://raw.githubusercontent.com/SentaiBrad/Bundle-Helper-Reborn-3.0/main/bundle-helper-reborn.user.js
+// ==/UserScript==
+
+/*
+
+# Bundle Helper Reborn
+
+Marks owned/ignored/wishlisted games on several sites, and also adds a button to open the steam page for each game.
+
+## Purpose
+
+If you have a Steam account, you are probably also buying games from other
+websites.
+
+This user-script can help you by highlighting (on other sites) the games you
+already have, games you have ignored, and games you have wishlisted (on Steam).
+
+It also adds a convenient button (actually, a link) to open the Steam page for
+each game on the supported third-party websites.
+
+It is complementary to the amazing [AugmentedSteam browser extension](https://augmentedsteam.com/).
+While that extension only applies to the Steam website(s), this user-script
+applies to third-party websites.
+
+It needs the permission to connect to `store.steampowered.com` to get the list
+of owned/ignored/wishlisted items for the current logged-in user.
+
+## History
+
+This user-script is a fork of ["Bundle Helper" v1.09 by "7-elephant"](https://greasyfork.org/en/scripts/16105-bundle-helper).
+
+It was initially based on 7-elephant's code, but has been completely rewritten
+for v2.0. Code for obsolete websites was removed. Additional code for
+extraneous poorly-documented functionality was also removed. This fork/version
+has a clear purpose and sticks to that purpose. It's also supposed to be easier
+to add support for more websites, or update the current ones when needed.
+
+In order to avoid name clashes, I've decided to name it "Bundle Helper Reborn".
+
+This fork also available at:
+* https://greasyfork.org/en/scripts/478401-bundle-helper-reborn
+* https://gist.github.com/denilsonsa/618ca8a9d04d574a162b10cbd3fce20f
+
+* License: [GPL-3.0-only](https://spdx.org/licenses/GPL-3.0-only.html)
+* Copyright 2016-2019, 7-elephant
+* Copyright 2023, Denilson Sá Maia
+* Copyright 2026, SentaiBrad (Bundle Helper Reborn 2.0 - Extended)
+
+## Bundle Helper Reborn 3.0
+
+Bundle Helper Reborn 3.0 is maintained by SentaiBrad:
+* https://github.com/SentaiBrad/Bundle-Helper-Reborn-3.0
+
+It continues "Bundle Helper Reborn 2.0 - Extended" (v2.x), previously published at:
+* https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
+
+Version 2.10.0 (and therefore 3.0.0) incorporates improvements from "Bundle Dude" v2.9.13 by
+J Luetkens (DickHorner), a GPL-3.0 fork of this script:
+* https://gist.github.com/DickHorner/cc55aa516c389b11b93661a49f9e658a
+
+Taken from Bundle Dude: document-start loading and the early Fanatical fetch
+hook, Steam profile data validation, waiting for profile data before marking,
+re-marking after a manual refresh, normalized title matching with the
+"Standard Edition" and DLC fallbacks, direct-ID-first Humble handling with
+broader card selectors, srcset/Steam CDN detection, SteamDB data attributes,
+*.itch.io and old.reddit.com routing fixes.
+
+*/
+
+(function () {
+	"use strict";
+	// jshint multistr:true
+
+	//////////////////////////////////////////////////
+	// Convenience functions
+
+	// Returns the Unix timestamp in seconds (as an integer value).
+	function getUnixTimestamp() {
+		return Math.trunc(Date.now() / 1000);
+	}
+
+	// Returns a human-readable amount of time.
+	function humanReadableSecondsAmount(seconds) {
+		if (!(Number.isFinite(seconds) && seconds >= 0)) {
+			return "";
+		}
+
+		const minutes = seconds / 60;
+		const hours = minutes / 60;
+		const days = hours / 24;
+
+		if (days >= 10 ) return days.toFixed(0) + " days";
+		if (days >= 1.5) return days.toFixed(1) + " days";
+		if (hours >= 10 ) return hours.toFixed(0) + " hours";
+		if (hours >= 1.5) return hours.toFixed(1) + " hours";
+		if (minutes >= 1) return minutes.toFixed(0) + " minutes";
+		else return "just now";
+	}
+
+	// Returns just the filename (i.e. basename) of a URL.
+	function filenameFromURL(s) {
+		if (!s) {
+			return "";
+		}
+
+		let url;
+		try {
+			url = new URL(s);
+		} catch (ex) {
+			// Invalid URL.
+			return "";
+		}
+
+		return url.pathname.replace(reX`^.*/`, "");
+	}
+
+	// Returns a new function that will call the callback without arguments
+	// after timeout milliseconds of quietness.
+	function debounce(callback, timeout = 500) {
+		let id = null;
+		return function() {
+			clearTimeout(id);
+			id = setTimeout(callback, timeout);
+		};
+	}
+
+	const active_mutation_observers = [];
+
+	function stopAllMutationObservers() {
+		for (const observer of active_mutation_observers) {
+			observer.disconnect();
+		}
+		active_mutation_observers.length = 0;
+	}
+
+	// Returns a new MutationObserver that observes a specific node.
+	// The observer will be immediately active.
+	function debouncedMutationObserver(rootNode, callback, timeout = 500) {
+		const func = debounce(callback, timeout);
+		func();
+		const observer = new MutationObserver(func);
+		observer.observe(rootNode, {
+			subtree: true,
+			childList: true,
+			attributes: true,
+			characterData: false,
+		});
+		active_mutation_observers.push(observer);
+		return observer;
+	}
+
+	// Adds a MutationObserver to each root node matched by the CSS selector.
+	function debouncedMutationObserverSelectorAll(rootSelector, callback, timeout = 500) {
+		for (const root of document.querySelectorAll(rootSelector)) {
+			debouncedMutationObserver(root, callback, timeout);
+		}
+	}
+
+	//////////////////////////////////////////////////
+	// Regular expressions
+
+	// Emulates the "x" flag for RegExp.
+	// It's also known as "verbose" flag, as it allows whitespace and comments inside the regex.
+	// It will probably break if the original string contains "$".
+	function reX(re_string) {
+		const raw = re_string.raw[0];
+		let s = raw;
+		// Removing comments.
+		s = s.replace(/(?<!\\)\/\/.*$/gm, "");
+		// Removing all whitespace.
+		s = s.replace(/[ \t\r\n]+/g, "");
+		return new RegExp(s);
+	}
+	// Same as reX, but ignoring case.
+	function reXi(re_string) {
+		return new RegExp(reX(re_string), "i");
+	}
+
+	const re_app = reX`
+		( /app/ | /apps/ | appid= )
+		(?<id>[0-9]+)
+		\b
+	`;
+	const re_sub = reX`
+		( /sub/ | /subs/ )
+		(?<id>[0-9]+)
+		\b
+	`;
+
+	// Parses a string and tries to extract the app id or the sub id.
+	function parseStringForSteamId(s) {
+		const match_app = re_app.exec(s);
+		const match_sub = re_sub.exec(s);
+
+		re_app.lastIndex = 0;
+		re_sub.lastIndex = 0;
+
+		if (match_app && match_sub) {
+			console.warn("The string matched both app id and sub id. This is likely a mistake.", s, match_app, match_sub);
+		}
+
+		return {
+			app: Number(match_app?.groups.id ?? 0),
+			sub: Number(match_sub?.groups.id ?? 0),
+		};
+	}
+
+	//////////////////////////////////////////////////
+	// Steam profile data caching
+
+	const cachename_profile_data = "bh_profile_data";
+	const cachename_profile_time = "bh_profile_time";
+	const cache_max_age_seconds = 60 * 60 * 24;  // 24 hours
+	let cached_sets = null;
+
+	function isProfileDataValid(data) {
+		return data && typeof data === "object"
+			&& Array.isArray(data.rgAppsInCart)
+			&& Array.isArray(data.rgIgnoredPackages)
+			&& Array.isArray(data.rgOwnedApps)
+			&& Array.isArray(data.rgOwnedPackages)
+			&& Array.isArray(data.rgPackagesInCart)
+			&& Array.isArray(data.rgWishlist)
+			&& data.rgIgnoredApps && typeof data.rgIgnoredApps === "object";
+	}
+
+	function hasValidProfileCache() {
+		return isProfileDataValid(GM_getValue(cachename_profile_data, {}));
+	}
+
+	function setProfileCache(data) {
+		if (!isProfileDataValid(data)) {
+			throw new TypeError("Steam returned invalid profile data.");
+		}
+
+		cached_sets = null;
+		data.rgCurations = {};
+		data.rgCurators = {};
+		data.rgCuratorsIgnored = [];
+		data.rgRecommendedApps = [];
+		data.rgRecommendedTags = [];
+		GM_setValue(cachename_profile_data, data);
+		GM_setValue(cachename_profile_time, getUnixTimestamp());
+	}
+
+	function clearProfileCache() {
+		cached_sets = null;
+		GM_setValue(cachename_profile_data, {});
+		GM_setValue(cachename_profile_time, 0);
+	}
+
+	function getProfileCacheAge() {
+		const now = getUnixTimestamp();
+		const cached = GM_getValue(cachename_profile_time, 0);
+		if (!cached) {
+			return "";
+		}
+		return humanReadableSecondsAmount(now - cached);
+	}
+
+	function isProfileCacheExpired() {
+		const now = getUnixTimestamp();
+		const cached = GM_getValue(cachename_profile_time, 0);
+		return now - cached > cache_max_age_seconds;
+	}
+
+	function downloadProfileData() {
+		return new Promise((resolve, reject) => {
+			function handleError(response) {
+				const status = response?.status ?? "unknown";
+				const statusText = response?.statusText ?? "unknown";
+				const message = `Error while loading the data: status=${status}; statusText=${statusText}`;
+				console.error(message);
+				reject(new Error(message));
+			}
+
+			GM_xmlhttpRequest({
+				method: "GET",
+				url: "https://store.steampowered.com/dynamicstore/userdata/?t=" + getUnixTimestamp(),
+				responseType: "json",
+				onload: function(response) {
+					if (response.status === 200) {
+						resolve(response.response);
+					} else {
+						handleError(response);
+					}
+				},
+				onerror: handleError,
+				onabort: function() {
+					reject(new Error("Steam profile request was aborted."));
+				},
+			});
+		});
+	}
+
+	function downloadAndUpdateProfileCache() {
+		return downloadProfileData().then((data) => {
+			setProfileCache(data);
+		});
+	}
+
+	function updateProfileCacheIfExpired() {
+		if (!hasValidProfileCache() || isProfileCacheExpired()) {
+			return downloadAndUpdateProfileCache();
+		} else {
+			return Promise.resolve();
+		}
+	}
+
+	function getCachedSets() {
+		if (!cached_sets) {
+			const data = GM_getValue(cachename_profile_data, {});
+			cached_sets = {
+				appsInCart: new Set(data.rgAppsInCart ?? []),
+				ignoredPackages: new Set(data.rgIgnoredPackages ?? []),
+				ownedApps: new Set(data.rgOwnedApps ?? []),
+				ownedPackages: new Set(data.rgOwnedPackages ?? []),
+				packagesInCart: new Set(data.rgPackagesInCart ?? []),
+				wishlist: new Set(data.rgWishlist ?? []),
+				ignoredApps: new Set(Object.keys(data.rgIgnoredApps ?? {}).map((key) => Number(key))),
+				excludedTags: new Set((data.rgExcludedTags ?? []).map((obj) => obj.name)),
+			};
+		}
+		return cached_sets;
+	}
+
+	//////////////////////////////////////////////////
+	// Bundle Helper UI
+
+	function createBundleHelperUI() {
+		const root = document.createElement("bundle-helper");
+		const shadow = root.attachShadow({
+			mode: "open",
+		});
+
+		shadow.innerHTML = `
+			<style>
+				.container {
+					background: #1b2838;
+					color: #ddd;
+					padding: 0.5em;
+					border-radius: 0 0.5em 0 0;
+					border: 1px #ddd outset;
+					border-width: 1px 1px 0 0;
+					font: 12px sans-serif;
+				}
+				p {
+					margin: 0;
+				}
+				a {
+					font: inherit;
+					color: inherit;
+					text-decoration: none;
+				}
+				a:hover {
+					color: #fff;
+					text-decoration: underline;
+				}
+				#close {
+					float: right;
+				}
+			</style>
+			<div class="container">
+				<p>
+					Steam profile data <a href="javascript:;" id="refresh">last fetched <output id="age"></output> ago</a>.
+				</p>
+				<p>
+					Owned:
+					<output id="ownedApps"></output> apps,
+					<output id="ownedPackages"></output> packages.
+				</p>
+				<p>
+					Ignored:
+					<output id="ignoredApps"></output> apps,
+					<output id="ignoredPackages"></output> packages.
+				</p>
+				<p>
+					<a href="javascript:;" id="close">[close]</a>
+					Wishlisted:
+					<output id="wishlist"></output> apps.
+				</p>
+				<p id="siteStatus" hidden></p>
+			</div>
+		`;
+
+		function updateUI() {
+			const age = getProfileCacheAge() || "never";
+			const sets = getCachedSets();
+
+			shadow.querySelector("#age").value = age;
+			shadow.querySelector("#ownedApps").value = sets.ownedApps.size;
+			shadow.querySelector("#ownedPackages").value = sets.ownedPackages.size;
+			shadow.querySelector("#ignoredApps").value = sets.ignoredApps.size;
+			shadow.querySelector("#ignoredPackages").value = sets.ignoredPackages.size;
+			shadow.querySelector("#wishlist").value = sets.wishlist.size;
+		}
+
+		shadow.querySelector("#refresh").addEventListener("click", async function(ev) {
+			ev.preventDefault();
+			try {
+				await downloadAndUpdateProfileCache();
+				stopAllMutationObservers();
+				unmarkAllElements();
+				processSite();
+			} catch (error) {
+				console.error("BH: Steam profile refresh failed.", error);
+			} finally {
+				updateUI();
+			}
+		});
+
+		shadow.querySelector("#close").addEventListener("click", function(ev) {
+			ev.preventDefault();
+			root.remove();
+		});
+
+		updateUI()
+		return {
+			element: root,
+			update: updateUI,
+		};
+	}
+
+	function addBundleHelperUI(root) {
+		if (typeof root == "string") {
+			root = document.querySelector(root);
+		}
+		if (!root) {
+			root = document.body;
+		}
+
+		const UI = createBundleHelperUI();
+		root.appendChild(UI.element);
+		return UI;
+	}
+
+	//////////////////////////////////////////////////
+	// Marking functions
+
+	function getClassForAppId(app) {
+		if (!app) return "";
+		const sets = getCachedSets();
+		if (sets.ownedApps.has(app)) return "bh_owned";
+		if (sets.wishlist.has(app)) return "bh_wished";
+		if (sets.ignoredApps.has(app)) return "bh_ignored";
+		return "";
+	}
+
+	function getClassForSubId(sub) {
+		if (!sub) return "";
+		const sets = getCachedSets();
+		if (sets.ownedPackages.has(sub)) return "bh_owned";
+		if (sets.ignoredPackages.has(sub)) return "bh_ignored";
+		return "";
+	}
+
+	// Create a new <a> link element to the appropriate Steam URL.
+	function createSteamLink(app_or_sub, id) {
+		const url = `https://store.steampowered.com/${app_or_sub}/${id}`;
+		// Copied from: https://github.com/edent/SuperTinyIcons/blob/master/images/svg/steam.svg
+		const svg = `
+			<svg xmlns="http://www.w3.org/2000/svg" aria-label="Steam" role="img" viewBox="0 0 512 512" fill="#ebebeb">
+				<path d="m0 0H512V512H0" fill="#231f20"/>
+				<path d="m183 280 41 28 27 41 87-62-94-96"/>
+				<circle cx="325" cy="191" r="74" fill="none" stroke="#ebebeb" stroke-width="33"/>
+				<ellipse cx="191" cy="340" fill="none" rx="56" ry="56" stroke="#ebebeb" stroke-width="33"/>
+			</svg>
+		`;
+		const a = document.createElement("a");
+		a.href = url;
+		a.innerHTML = svg;
+		a.className = "bh_steamlink";
+		a.addEventListener("click", function(ev) {
+			ev.stopPropagation();
+		});
+		return a;
+	}
+
+	function markElements({
+		rootSelector = "body",
+		itemSelector = "a[href*='store.steampowered.com/']",
+		itemStringExtractor = (a) => a.href,
+		closestSelector = "*",
+		addSteamLinkFunc = (item, closest, steam_link) => {},
+	}) {
+		let total_items = 0;
+		let valid_data_items = 0;
+		let valid_closest_items = 0;
+		let skipped_items = 0;
+		let marked_items = 0;
+		for (const root of document.querySelectorAll(rootSelector)) {
+			for (const item of root.querySelectorAll(itemSelector)) {
+				total_items++;
+				const data = itemStringExtractor(item);
+				if (!data) {
+					continue;
+				}
+				valid_data_items++;
+				const closest = item.closest(closestSelector);
+				if (!closest) {
+					continue;
+				}
+				valid_closest_items++;
+				if (closest.classList.contains("bh_already_processed")) {
+					skipped_items++;
+					continue;
+				}
+
+				const {app, sub} = parseStringForSteamId(data);
+				if (app || sub) {
+					closest.classList.add("bh_already_processed");
+					marked_items++;
+					closest.classList.remove("bh_owned", "bh_wished", "bh_ignored");
+					const cssClass = getClassForAppId(app) || getClassForSubId(sub);
+					if (cssClass) {
+						closest.classList.add(cssClass);
+					}
+
+					const steam_link = createSteamLink(app ? "app" : "sub", app || sub);
+					addSteamLinkFunc?.(item, closest, steam_link)
+				}
+			}
+		}
+
+		console.info(
+			"markElements(",
+			"rootSelector=", rootSelector, ",",
+			"itemSelector=", itemSelector, ",",
+			"closestSelector=", closestSelector, "):",
+			`${total_items} total elements, ${valid_data_items} with valid data, ${valid_closest_items} with valid closest element, ${skipped_items} skipped, ${marked_items} marked`
+		);
+	}
+
+	// This function tries to undo the effects of markElements().
+	function unmarkAllElements() {
+		const classes = [
+			"bh_owned", "bh_wished", "bh_ignored", "bh_already_processed",
+		];
+		for (const elem of document.querySelectorAll(classes.map((s) => `.${s}`).join(", "))) {
+			elem.classList.remove(...classes);
+		}
+		for (const elem of document.querySelectorAll(".bh_steamlink")) {
+			elem.remove();
+		}
+	}
+
+	//////////////////////////////////////////////////
+	// Site-specific data and code
+
+	// There are no visible ids in the DOM on Fanatical.
+	// Let's use something unique as the key: the cover image filenames.
+	// The values are the "steam" objects from Fanatical API.
+	const fanatical_cover_map = new Map();
+
+	function captureFanaticalSteamData(json_data) {
+		if (!json_data) {
+			return;
+		}
+		for (const bundle of json_data.bundles ?? []) {
+			for (const game of bundle.games ?? []) {
+				if (game.cover && game.steam) {
+					fanatical_cover_map.set(game.cover, game.steam);
+				}
+			}
+		}
+		for (const game of json_data.products ?? []) {
+			if (game.cover && game.steam) {
+				fanatical_cover_map.set(game.cover, game.steam);
+			}
+		}
+		if (json_data.cover && json_data.steam) {
+			fanatical_cover_map.set(json_data.cover, json_data.steam);
+		}
+	}
+
+	function installFanaticalFetchInterceptor() {
+		if (document.location.hostname.replace(/^www\./u, "") !== "fanatical.com") {
+			return;
+		}
+		const original_fetch = unsafeWindow.fetch;
+		if (typeof original_fetch !== "function" || original_fetch.bh_intercepted) {
+			return;
+		}
+
+		async function interceptedFetch(...args) {
+			const response = await original_fetch.apply(this, args);
+			const original_json = response.json;
+			if (typeof original_json === "function") {
+				response.json = function() {
+					const promise = original_json.apply(this);
+					promise.then(captureFanaticalSteamData, () => {});
+					return promise;
+				};
+			}
+			return response;
+		}
+		interceptedFetch.bh_intercepted = true;
+		unsafeWindow.fetch = interceptedFetch;
+	}
+
+	const title_appid_cache = new Map();
+	const steam_language_names = new Map([
+		["de", "german"],
+		["en", "english"],
+		["es", "spanish"],
+		["fr", "french"],
+		["it", "italian"],
+		["ja", "japanese"],
+		["ko", "koreana"],
+		["nl", "dutch"],
+		["pl", "polish"],
+		["pt", "portuguese"],
+		["pt-br", "brazilian"],
+		["ru", "russian"],
+		["tr", "turkish"],
+		["zh", "schinese"],
+		["zh-hans", "schinese"],
+		["zh-hant", "tchinese"],
+		["zh-hk", "tchinese"],
+		["zh-tw", "tchinese"],
+	]);
+	const standard_edition_suffix = /\bstandard edition$/u;
+
+	function normalizeGameTitle(title) {
+		return title
+			.replace(/[™®©]/gu, "")
+			.normalize("NFKD")
+			.replace(/\p{M}/gu, "")
+			.replace(/&/gu, " and ")
+			.toLowerCase()
+			.replace(/[^\p{L}\p{N}]+/gu, " ")
+			.trim();
+	}
+
+
+	function gameTitlesMatch(expected, candidate) {
+		const normalized_expected = normalizeGameTitle(expected);
+		const normalized_candidate = normalizeGameTitle(candidate);
+		if (!normalized_expected || !normalized_candidate) {
+			return false;
+		}
+		if (normalized_expected === normalized_candidate) {
+			return true;
+		}
+		return normalized_expected.replace(standard_edition_suffix, "").trim()
+			=== normalized_candidate.replace(standard_edition_suffix, "").trim();
+	}
+
+	function getSteamLookupTitles(title) {
+		const titles = [title];
+		const base_title = title.replace(/\s*(?:[:\-–—]\s*)?standard edition\s*$/iu, "").trim();
+		if (base_title && normalizeGameTitle(base_title) !== normalizeGameTitle(title)) {
+			titles.push(base_title);
+		}
+		return titles;
+	}
+
+	function extractSteamSearchCandidates(doc) {
+		const candidates = [];
+		for (const result of doc.querySelectorAll("a[data-ds-appid]")) {
+			const result_title = result.querySelector(".match_name, .title")?.textContent?.trim() ?? "";
+			const dataset_appid = Number.parseInt(result.dataset.dsAppid?.split(",")[0] ?? "", 10);
+			const appid = dataset_appid || parseStringForSteamId(result.href ?? "").app;
+			if (appid > 0 && result_title) {
+				candidates.push({appid: appid, title: result_title});
+			}
+		}
+		return candidates;
+	}
+
+	function chooseSteamSearchCandidate(title, candidates) {
+		const exact = candidates.find((candidate) => gameTitlesMatch(title, candidate.title));
+		// Only exact (normalized) matches are accepted. No fuzzy guessing,
+		// so a similarly named game is never marked by mistake.
+		return exact ? exact.appid : 0;
+	}
+
+	function getSteamLookupLanguages() {
+		const languages = [];
+		for (const locale_value of [document.documentElement.lang, navigator.language, "en"]) {
+			if (!locale_value) {
+				continue;
+			}
+			const locale = locale_value.toLowerCase().replace("_", "-");
+			const language = steam_language_names.get(locale)
+				?? steam_language_names.get(locale.split("-")[0])
+				?? "english";
+			if (!languages.includes(language)) {
+				languages.push(language);
+			}
+		}
+		return languages;
+	}
+
+	function getSteamLookupCountry() {
+		const match = (navigator.language || "").match(/[-_]([a-z]{2})$/iu);
+		return match?.[1].toUpperCase() ?? "US";
+	}
+
+	function requestSteamTitleLookup(title, language) {
+		return new Promise((resolve) => {
+			const query = new URLSearchParams({
+				term: title,
+				f: "games",
+				cc: getSteamLookupCountry(),
+				realm: "1",
+				l: language,
+			});
+			GM_xmlhttpRequest({
+				method: "GET",
+				url: "https://store.steampowered.com/search/suggest?" + query,
+				onload: function(response) {
+					if (response.status !== 200) {
+						console.error(`Steam title lookup failed with status ${response.status}.`);
+						resolve(null);
+						return;
+					}
+
+					try {
+						const parser = new DOMParser();
+						const doc = parser.parseFromString(response.responseText, "text/html");
+						resolve(chooseSteamSearchCandidate(title, extractSteamSearchCandidates(doc)));
+					} catch (error) {
+						console.error("Steam title lookup response could not be parsed.", error);
+						resolve(null);
+					}
+				},
+				onerror: function() {
+					console.error("Steam title lookup failed.");
+					resolve(null);
+				},
+				onabort: function() {
+					console.error("Steam title lookup was aborted.");
+					resolve(null);
+				},
+			});
+		});
+	}
+
+	function requestSteamDlcLookup(title, language) {
+		return new Promise((resolve) => {
+			const query = new URLSearchParams({
+				term: title,
+				category1: "21",
+				cc: getSteamLookupCountry(),
+				l: language,
+				json: "1",
+			});
+			GM_xmlhttpRequest({
+				method: "GET",
+				url: "https://store.steampowered.com/search/results/?" + query,
+				responseType: "json",
+				onload: function(response) {
+					if (response.status !== 200) {
+						console.error(`Steam DLC lookup failed with status ${response.status}.`);
+						resolve(null);
+						return;
+					}
+
+					try {
+						const data = response.response && typeof response.response === "object"
+							? response.response
+							: JSON.parse(response.responseText);
+						const parser = new DOMParser();
+						const doc = parser.parseFromString(data?.results_html ?? "", "text/html");
+						resolve(chooseSteamSearchCandidate(title, extractSteamSearchCandidates(doc)));
+					} catch (error) {
+						console.error("Steam DLC lookup response could not be parsed.", error);
+						resolve(null);
+					}
+				},
+				onerror: function() {
+					console.error("Steam DLC lookup failed.");
+					resolve(null);
+				},
+				onabort: function() {
+					console.error("Steam DLC lookup was aborted.");
+					resolve(null);
+				},
+			});
+		});
+	}
+
+	async function resolveSteamAppIdFromTitle(title) {
+		const languages = getSteamLookupLanguages();
+		const cache_key = `${languages.join(",")}:${normalizeGameTitle(title)}`;
+		if (title_appid_cache.has(cache_key)) {
+			return title_appid_cache.get(cache_key);
+		}
+
+		const lookup_titles = getSteamLookupTitles(title);
+		for (const lookup_title of lookup_titles) {
+			for (const language of languages) {
+				const appid = await requestSteamTitleLookup(lookup_title, language);
+				if (appid === null) {
+					return null;
+				}
+				if (appid) {
+					title_appid_cache.set(cache_key, appid);
+					return appid;
+				}
+			}
+		}
+
+		// Steam's suggestion endpoint is game-focused. Search the DLC category
+		// only after all game-title variants and languages have failed.
+		for (const lookup_title of lookup_titles) {
+			for (const language of languages) {
+				const appid = await requestSteamDlcLookup(lookup_title, language);
+				if (appid === null) {
+					return null;
+				}
+				if (appid) {
+					title_appid_cache.set(cache_key, appid);
+					return appid;
+				}
+			}
+		}
+
+		console.info(`BH: No conservative Steam title or DLC match found for "${title}".`);
+		title_appid_cache.set(cache_key, 0);
+		return 0;
+	}
+
+	// For sites that embed Steam CDN image URLs directly in <img> tags.
+	function markBySteamImageUrl(rootSelector, closestSelector) {
+		markElements({
+			rootSelector: rootSelector,
+			itemSelector: "img[src*='/steam/apps/'], img[srcset*='/steam/apps/']",
+			itemStringExtractor: (img) => img.srcset || img.src,
+			closestSelector: closestSelector,
+		});
+	}
+
+	// For simple static sites that have plain Steam store links in the DOM.
+	function markBySteamHref(rootSelector, closestSelector) {
+		markElements({
+			rootSelector: rootSelector,
+			itemSelector: "a[href*='store.steampowered.com/app/'], a[href*='store.steampowered.com/sub/'], a[href*='steamcommunity.com/app/']",
+			itemStringExtractor: (a) => a.href,
+			closestSelector: closestSelector,
+		});
+	}
+
+	function findSteamProductId(root) {
+		const selectors = [
+			"[data-ds-appid]",
+			"[data-appid]",
+			"[data-app-id]",
+			"[data-steam-app-id]",
+			"[data-subid]",
+			"[data-packageid]",
+			"[data-steam-sub-id]",
+			"a[href*='store.steampowered.com/app/']",
+			"a[href*='store.steampowered.com/sub/']",
+			"a[href*='steamcommunity.com/app/']",
+			"img[src*='/steam/apps/']",
+			"img[srcset*='/steam/apps/']",
+		];
+		const elements = [root];
+		for (const selector of selectors) {
+			elements.push(...root.querySelectorAll(selector));
+		}
+
+		for (const element of elements) {
+			for (const attribute of ["href", "src", "srcset"]) {
+				const value = element.getAttribute?.(attribute);
+				const ids = parseStringForSteamId(value ?? "");
+				if (ids.app || ids.sub) {
+					return ids;
+				}
+			}
+			for (const attribute of ["data-ds-appid", "data-appid", "data-app-id", "data-steam-app-id"]) {
+				const app = Number.parseInt(element.getAttribute?.(attribute) ?? "", 10);
+				if (app > 0) {
+					return {app: app, sub: 0};
+				}
+			}
+			for (const attribute of ["data-subid", "data-packageid", "data-steam-sub-id"]) {
+				const sub = Number.parseInt(element.getAttribute?.(attribute) ?? "", 10);
+				if (sub > 0) {
+					return {app: 0, sub: sub};
+				}
+			}
+		}
+		return {app: 0, sub: 0};
+	}
+
+	const site_mapping = {
+		"astats.astats.nl": function() {
+			document.body.classList.add("bh_basic_style");
+			GM_addStyle(`
+				.bh_basic_style table.tablesorter tbody tr.bh_owned,
+				.bh_basic_style table.tablesorter tbody tr.bh_wished,
+				.bh_basic_style table.tablesorter tbody tr.bh_ignored {
+					background: var(--bh-bgcolor) linear-gradient(135deg, rgba(0, 0, 0, 0.70) 10%, rgba(0, 0, 0, 0) 100%) !important;
+					color: var(--bh-fgcolor) !important;
+				}
+			`);
+			markElements({
+				rootSelector: "body",
+				itemSelector: "td > a > img[alt='Logo']",
+				itemStringExtractor: (img) => img.src,
+				closestSelector: "tr",
+			});
+			markElements({
+				rootSelector: "body",
+				itemSelector: "td > a > img.teaser[data-src]",
+				itemStringExtractor: (img) => img.dataset.src,
+				closestSelector: "td",
+			});
+		},
+		"dailyindiegame.com": function() {
+			document.body.classList.add("bh_basic_style");
+			markElements({
+				rootSelector: ".DIG3_14_Gray",
+				itemSelector: "td.DIG3_14_Orange a[href*='store.steampowered.com/']",
+				itemStringExtractor: (a) => a.href,
+				closestSelector: "td",
+				addSteamLinkFunc: (item, closest, link) => {
+					item.insertAdjacentElement("beforebegin", link);
+				},
+			});
+			markElements({
+				rootSelector: "#DIG2TableGray",
+				itemSelector: "a[href*='store.steampowered.com/']",
+				itemStringExtractor: (a) => a.href,
+				closestSelector: "tr:has(> .XDIGcontent)",
+				addSteamLinkFunc: (item, closest, link) => {
+					item.insertAdjacentElement("beforebegin", link);
+				},
+			});
+			markElements({
+				rootSelector: ".DIG-SiteLinksLarge, #DIG2TableGray",
+				itemSelector: "a[href*='site_gamelisting_']:has(img)",
+				itemStringExtractor: (a) => a.href.replace(/site_gamelisting_([0-9]+)\.html.*/, "app/$1"),
+				closestSelector: "li, td",
+				addSteamLinkFunc: (item, closest, link) => {
+					link.style.position = "absolute";
+					link.style.bottom = "0";
+					link.style.right = "0";
+				},
+			});
+			markElements({
+				rootSelector: "#TableKeys",
+				itemSelector: "a[href*='site_gamelisting_']",
+				itemStringExtractor: (a) => a.href.replace(/site_gamelisting_([0-9]+)\.html.*/, "app/$1"),
+				closestSelector: "tr",
+				addSteamLinkFunc: (item, closest, link) => {
+					item.insertAdjacentElement("beforebegin", link);
+				},
+			});
+		},
+		"fanatical.com": function() {
+			document.body.classList.add("bh_basic_style");
+			GM_addStyle(`
+				.bh_steamlink {
+					position: absolute;
+					bottom: 0;
+					left: calc( 50% - var(--bh-steamlink-size) / 2 );
+				}
+				.ProductHeader.container .bh_steamlink {
+					position: static;
+					bottom: auto;
+				}
+			`);
+
+			// Setting a MutationObserver on the whole document is bad for
+			// performance, but I can't find any better way, given the website
+			// rewrites the DOM at will. At least, I'm increasing the debouncing
+			// time to at least 2 seconds.
+			debouncedMutationObserverSelectorAll("body", function() {
+				markElements({
+					rootSelector: "main",
+					itemSelector: "img.img-full[srcset]",
+					itemStringExtractor: (img) => {
+						const filename = filenameFromURL(img.src);
+						const steam = fanatical_cover_map.get(filename);
+						if (!steam) {
+							return "";
+						}
+						return `/${steam.type}/${steam.id}`;
+					},
+					closestSelector: ".bundle-game-card, .bundle-product-card, .card, .HitCard, .header-content-container, .NewPickAndMixCard, .PickAndMixCard, .ProductHeader.container",
+					addSteamLinkFunc: (item, closest, link) => {
+						closest.style.position = "relative";
+						closest.insertAdjacentElement("beforeend", link);
+					},
+				});
+			}, 2000);
+
+			// We don't even try matching the dropdown results from the top bar.
+			// It's not reliable and doesn't work properly.
+		},
+		"indiegala.com": function() {
+			document.body.classList.add("bh_basic_style");
+			markElements({
+				rootSelector: ".store-product-main-container.product-main-container .product",
+				itemSelector: "a[data-prod-id]",
+				itemStringExtractor: (a) => "/app/" + a.dataset.prodId,
+				closestSelector: "figcaption",
+				addSteamLinkFunc: (item, closest, link) => {
+					closest.insertAdjacentElement("afterbegin", link);
+				},
+			});
+			GM_addStyle(`
+				.main-list-results-item figcaption {
+					background: transparent;
+				}
+				.main-list-results-item-margin {
+					background: #FFF;
+				}
+				a.main-list-results-item-add-to-cart {
+					left: calc( 2 * 10px + var(--bh-steamlink-size) );
+					width: auto;
+					right: 10px;
+				}
+			`);
+			debouncedMutationObserverSelectorAll(".main-list-results", function() {
+				markElements({
+					rootSelector: ".main-list-results",
+					itemSelector: "a[data-prod-id]",
+					itemStringExtractor: (a) => "/app/" + a.dataset.prodId,
+					closestSelector: ".main-list-results-item-margin",
+					addSteamLinkFunc: (item, closest, link) => {
+						closest.querySelector("div.flex").insertAdjacentElement("afterbegin", link);
+					},
+				});
+			});
+			GM_addStyle(`
+				.bundle-page-tier-item-outer figcaption {
+					background: transparent;
+				}
+				.bundle-page-tier-item-outer {
+					background: #FFF;
+				}
+			`);
+			markElements({
+				rootSelector: ".bundle-page-tier-games",
+				itemSelector: "img.img-fit",
+				itemStringExtractor: (img) => img.src,
+				closestSelector: ".bundle-page-tier-item-outer",
+				addSteamLinkFunc: (item, closest, link) => {
+					link.style.position = "relative";
+					link.style.zIndex = "99";
+				},
+			});
+			GM_addStyle(`
+				.header-search .results .results-item a,
+				.header-search .results .results-item .price .final-color-off {
+					background: transparent;
+					color: inherit;
+				}
+			`);
+			debouncedMutationObserverSelectorAll(".header-search .results", function() {
+				markElements({
+					rootSelector: ".header-search .results",
+					itemSelector: "a[data-prod-id]",
+					itemStringExtractor: (a) => "/app/" + a.dataset.prodId,
+					closestSelector: ".results-item",
+					addSteamLinkFunc: (item, closest, link) => {
+						closest.querySelector("div.flex").insertAdjacentElement("afterbegin", link);
+					},
+				});
+			});
+		},
+		"old.reddit.com": function() {
+			document.body.classList.add("bh_basic_style");
+			debouncedMutationObserverSelectorAll(".content", function() {
+				markElements({
+					itemSelector: "a[href*='store.steampowered.com/'], a[href*='steamcommunity.com/']",
+					itemStringExtractor: (a) => a.href,
+				});
+			});
+		},
+		"sgtools.info": function() {
+			document.body.classList.add("bh_basic_style");
+			GM_addStyle(`
+				.bh_owned a,
+				.bh_wished a,
+				.bh_ignored a {
+					color: inherit;
+				}
+			`);
+			markElements({
+				rootSelector: "#content",
+				itemSelector: "table a[href*='store.steampowered.com/']",
+				itemStringExtractor: (a) => a.href,
+				closestSelector: "tr",
+			});
+			GM_addStyle(`
+				.bh_owned h2,
+				.bh_wished h2,
+				.bh_ignored h2,
+				.bh_owned h3,
+				.bh_wished h3,
+				.bh_ignored h3 {
+					color: inherit;
+				}
+			`);
+			markElements({
+				rootSelector: "#deals",
+				itemSelector: ".deal_game_image > img[src*='/steam/']",
+				itemStringExtractor: (img) => img.src,
+				closestSelector: ".deal",
+				addSteamLinkFunc: (item, closest, link) => {
+					link.style.float = "left";
+				},
+			});
+		},
+		"steamgifts.com": function() {
+			document.body.classList.add("bh_basic_style");
+			GM_addStyle(`
+				.page__outer-wrap {
+					text-shadow: none;
+				}
+			`);
+			GM_addStyle(`
+				.giveaway__heading > * {
+					order: 2;
+				}
+				.giveaway__heading > .giveaway__icon {
+					order: 1;
+				}
+				.bh_owned   .giveaway__summary .giveaway__heading > *,
+				.bh_wished  .giveaway__summary .giveaway__heading > *,
+				.bh_ignored .giveaway__summary .giveaway__heading > *,
+				.bh_owned   .giveaway__summary .giveaway__columns > *,
+				.bh_wished  .giveaway__summary .giveaway__columns > *,
+				.bh_ignored .giveaway__summary .giveaway__columns > * {
+					color: inherit;
+				}
+			`);
+			markElements({
+				rootSelector: ".page__inner-wrap",
+				itemSelector: "a.giveaway_image_thumbnail[style]",
+				itemStringExtractor: (a) => a.style.backgroundImage,
+				closestSelector: ".giveaway__row-inner-wrap",
+			});
+			GM_addStyle(`
+				.bh_owned   .table__column__heading,
+				.bh_wished  .table__column__heading,
+				.bh_ignored .table__column__heading {
+					color: inherit;
+				}
+			`);
+			markElements({
+				rootSelector: ".table",
+				itemSelector: "a[href*='store.steampowered.com/']",
+				itemStringExtractor: (a) => a.href,
+				closestSelector: ".table__row-outer-wrap",
+			});
+			markElements({
+				itemSelector: "a[href*='store.steampowered.com/'], a[href*='steamcommunity.com/']",
+				itemStringExtractor: (a) => a.href,
+			});
+		},
+		"steamground.com": function() {
+			document.body.classList.add("bh_basic_style");
+			GM_addStyle(`
+				.bh_owned .inner__slider,
+				.bh_wished .inner__slider,
+				.bh_ignored .inner__slider {
+					background-color: transparent;
+				}
+			`);
+			markElements({
+				rootSelector: ".content_inner",
+				itemSelector: "a[href*='store.steampowered.com/']",
+				itemStringExtractor: (a) => a.href,
+				closestSelector: ".content_inner",
+			});
+			GM_addStyle(`
+				.wholesale-card_info_about {
+					display: inline-block;
+					position: static;
+				}
+			`);
+		},
+		"humblebundle.com": function() {
+			document.body.classList.add("bh_basic_style");
+			GM_addStyle(`
+				.bh_humble_visual {
+					position: relative !important;
+				}
+				.bh_humble_card.bh_owned   .bh_humble_visual,
+				.bh_humble_card.bh_wished  .bh_humble_visual,
+				.bh_humble_card.bh_ignored .bh_humble_visual {
+					outline: 3px solid var(--bh-bgcolor);
+					outline-offset: -3px;
+				}
+				.bh_humble_card.bh_owned,
+				.bh_humble_card.bh_wished,
+				.bh_humble_card.bh_ignored {
+					background: unset;
+					box-shadow: none;
+				}
+				.bh_humble_visual > .bh_steamlink {
+					position: absolute;
+					bottom: 4px;
+					right: 4px;
+					z-index: 10;
+				}
+				.bh_humble_card.bh_owned .item-flavor-text,
+				.bh_humble_card.bh_wished .item-flavor-text,
+				.bh_humble_card.bh_ignored .item-flavor-text {
+					color: #ccc !important;
+				}
+			`);
+
+			const title_selector = [
+				".tier-item-view .item-title",
+				".item-title",
+				".content-choice-title .entity-title",
+				".dd-image-box-caption .dd-image-box-text",
+				"[class*='content-choice'] [class*='title']",
+				".game-name h4",
+				".game-name",
+			].join(", ");
+			const card_selector = [
+				".tier-item-view",
+				"[class*='tier-item']",
+				".content-choice-view",
+				"[class*='content-choice-item']",
+				"[class*='content-choice-card']",
+				".dd-image-box",
+				".game-name",
+				"article",
+				"li",
+			].join(", ");
+			const visual_selector = [
+				".img-container",
+				".dd-image-box-image",
+				"[class*='image-container']",
+				"[class*='image-wrapper']",
+				"[class*='cover']",
+			].join(", ");
+
+			let processing_titles = false;
+
+			async function processTitles() {
+				if (processing_titles) {
+					return;
+				}
+
+				processing_titles = true;
+				let found_titles = 0;
+				let resolved_titles = 0;
+				try {
+					const seen_cards = new Set();
+					for (const title_element of document.querySelectorAll(title_selector)) {
+						const card = title_element.closest(card_selector) ?? title_element.closest("a") ?? title_element.parentElement;
+						if (!card || seen_cards.has(card) || card.classList.contains("bh_already_processed")) {
+							continue;
+						}
+						seen_cards.add(card);
+						card.classList.add("bh_humble_card");
+						found_titles++;
+
+						const title = title_element.textContent?.trim() ?? "";
+						if (!title) {
+							continue;
+						}
+
+						const direct_id = findSteamProductId(card);
+						let app = direct_id.app;
+						const sub = direct_id.sub;
+
+						if (!app && !sub) {
+							app = await resolveSteamAppIdFromTitle(title);
+							if (app === null) {
+								continue;
+							}
+						}
+
+						const product_id = app || sub;
+						if (product_id) {
+							resolved_titles++;
+							card.classList.remove("bh_owned", "bh_wished", "bh_ignored");
+							const cssClass = getClassForAppId(app) || getClassForSubId(sub);
+							if (cssClass) {
+								card.classList.add(cssClass);
+							}
+
+							const visual = card.querySelector(visual_selector) ?? title_element.parentElement;
+							if (visual) {
+								visual.classList.add("bh_humble_visual");
+								if (!visual.querySelector(".bh_steamlink")) {
+									visual.appendChild(createSteamLink(app ? "app" : "sub", product_id));
+								}
+							}
+						}
+
+						card.classList.add("bh_already_processed");
+					}
+				} finally {
+					processing_titles = false;
+					const total_cards = document.querySelectorAll(".bh_humble_card").length;
+					const matched_cards = document.querySelectorAll(".bh_humble_card .bh_steamlink").length;
+					const status_output = document.querySelector("bundle-helper")?.shadowRoot?.querySelector("#siteStatus");
+					if (status_output) {
+						status_output.hidden = false;
+						status_output.textContent = `Humble: ${total_cards} items found, ${matched_cards} matched to Steam.`;
+					}
+					console.info(`BH Humble: ${found_titles} new item cards found, ${resolved_titles} Steam products resolved; ${total_cards} total.`);
+				}
+			}
+
+			void processTitles();
+			debouncedMutationObserverSelectorAll("body", () => void processTitles(), 1000);
+		},
+		"hrkgame.com": function() {
+			document.body.classList.add("bh_basic_style");
+			debouncedMutationObserverSelectorAll("body", () => {
+				markBySteamHref("body", ".product-item, article, li");
+				markBySteamImageUrl("body", ".product-item, article, li");
+			}, 1000);
+		},
+		"gameseal.com": function() {
+			document.body.classList.add("bh_basic_style");
+			debouncedMutationObserverSelectorAll("body", () => {
+				markBySteamHref("body", ".product, .game-card, article, li");
+				markBySteamImageUrl("body", ".product, .game-card, article, li");
+			}, 1000);
+		},
+		"itch.io": function() {
+			document.body.classList.add("bh_basic_style");
+			GM_addStyle(`
+				.bh_basic_style .index_game_cell_widget.bh_owned   { outline: 3px solid var(--bh-bgcolor); outline-offset: -3px; }
+				.bh_basic_style .index_game_cell_widget.bh_wished  { outline: 3px solid var(--bh-bgcolor); outline-offset: -3px; }
+				.bh_basic_style .index_game_cell_widget.bh_ignored { outline: 3px solid var(--bh-bgcolor); outline-offset: -3px; }
+			`);
+
+			let processing_itch = false;
+
+			async function processItchTiles() {
+				if (processing_itch) {
+					return;
+				}
+				processing_itch = true;
+				try {
+					const tiles = document.querySelectorAll(".index_game_cell_widget.game_cell:not(.bh_already_processed)");
+					for (const tile of tiles) {
+						let {app, sub} = findSteamProductId(tile);
+
+						// itch.io tiles almost never contain Steam IDs, so fall back
+						// to a conservative title lookup.
+						if (!app && !sub) {
+							const title = tile.querySelector(".game_title, .title")?.textContent?.trim() ?? "";
+							if (!title) {
+								// Title not rendered yet; leave the tile retryable.
+								continue;
+							}
+							app = await resolveSteamAppIdFromTitle(title);
+							if (app === null) {
+								// Lookup failed (network/HTTP error); retry later.
+								continue;
+							}
+						}
+
+						tile.classList.add("bh_already_processed");
+						const product_id = app || sub;
+						if (!product_id) {
+							continue;
+						}
+
+						tile.classList.remove("bh_owned", "bh_wished", "bh_ignored");
+						const cssClass = getClassForAppId(app) || getClassForSubId(sub);
+						if (cssClass) {
+							tile.classList.add(cssClass);
+						}
+
+						const thumb = tile.querySelector("a.game_thumb");
+						if (thumb && !thumb.querySelector(".bh_steamlink")) {
+							const link = createSteamLink(app ? "app" : "sub", product_id);
+							link.style.position = "absolute";
+							link.style.bottom = "4px";
+							link.style.right = "4px";
+							link.style.zIndex = "10";
+							thumb.appendChild(link);
+						}
+					}
+				} finally {
+					processing_itch = false;
+				}
+			}
+
+			void processItchTiles();
+			debouncedMutationObserverSelectorAll("body", () => void processItchTiles(), 2000);
+		},
+		"tiltify.com": function() {
+			document.body.classList.add("bh_basic_style");
+			debouncedMutationObserverSelectorAll("body", () => {
+				markBySteamHref("body", ".reward-card, article, li");
+				markBySteamImageUrl("body", ".reward-card, article, li");
+			}, 2000);
+		},
+		"steamdb.info": function() {
+			document.body.classList.add("bh_basic_style");
+			debouncedMutationObserverSelectorAll("body", () => {
+				markElements({
+					rootSelector: "body",
+					itemSelector: "[data-appid]",
+					itemStringExtractor: (element) => "/app/" + element.dataset.appid,
+					closestSelector: "tr, .app, li",
+				});
+				markElements({
+					rootSelector: "body",
+					itemSelector: "[data-subid]",
+					itemStringExtractor: (element) => "/sub/" + element.dataset.subid,
+					closestSelector: "tr, .package, li",
+				});
+				markBySteamHref("body", "tr, .app, .package, li");
+			}, 1000);
+		},
+		"g2a.com": function() {
+			document.body.classList.add("bh_basic_style");
+			debouncedMutationObserverSelectorAll("body", () => {
+				markBySteamHref("body", "[class*='tile'], [class*='card'], article, li");
+				markBySteamImageUrl("body", "[class*='tile'], [class*='card'], article, li");
+			}, 2000);
+		},
+	};
+
+	function processSite() {
+		let hostname = document.location.hostname;
+		// Removing the www. prefix, if present.
+		hostname = hostname.replace(/^www\./, "");
+		if (hostname.endsWith(".itch.io")) {
+			hostname = "itch.io";
+		}
+		// Calling the site-specific code, if found.
+		site_mapping[hostname]?.();
+	}
+
+	async function main() {
+		GM_addStyle(`
+			bundle-helper {
+				position: fixed;
+				bottom: 0;
+				left: 0;
+				z-index: 99;
+			}
+
+			/* Background colors and background gradient copied from Enhanced Steam browser extension */
+			body {
+				--bh-bgcolor-owned: #00CE67;
+				--bh-bgcolor-wished: #0491BF;
+				--bh-bgcolor-ignored: #4F4F4F;
+				--bh-fgcolor-owned: #FFFFFF;
+				--bh-fgcolor-wished: #FFFFFF;
+				--bh-fgcolor-ignored: #FFFFFF;
+				--bh-steamlink-size: 24px;
+			}
+			.bh_owned {
+				--bh-bgcolor: var(--bh-bgcolor-owned);
+				--bh-fgcolor: var(--bh-fgcolor-owned);
+			}
+			.bh_wished {
+				--bh-bgcolor: var(--bh-bgcolor-wished);
+				--bh-fgcolor: var(--bh-fgcolor-wished);
+			}
+			.bh_ignored {
+				--bh-bgcolor: var(--bh-bgcolor-ignored);
+				--bh-fgcolor: var(--bh-fgcolor-ignored);
+			}
+			.bh_basic_style .bh_owned,
+			.bh_basic_style .bh_wished,
+			.bh_basic_style .bh_ignored {
+				background: var(--bh-bgcolor) linear-gradient(135deg, rgba(0, 0, 0, 0.70) 10%, rgba(0, 0, 0, 0) 100%) !important;
+				color: var(--bh-fgcolor) !important;
+			}
+			.bh_basic_style .bh_ignored {
+				opacity: 0.3;
+			}
+
+			.bh_steamlink svg {
+				width: var(--bh-steamlink-size);
+				height: var(--bh-steamlink-size);
+			}
+		`);
+
+		// Adding some statistics to the corner of the screen.
+		const UI = addBundleHelperUI();
+
+		try {
+			await updateProfileCacheIfExpired();
+		} catch (error) {
+			console.error("BH: Steam profile initialization failed.", error);
+		}
+		UI.update();
+
+		if (!hasValidProfileCache()) {
+			console.error("BH: Site processing skipped because no valid Steam profile data is available.");
+			return;
+		}
+
+		// Run site-specific code.
+		processSite();
+	}
+
+	installFanaticalFetchInterceptor();
+	if (document.readyState === "loading") {
+		document.addEventListener("DOMContentLoaded", main, {once: true});
+	} else {
+		main();
+	}
+
+})();
