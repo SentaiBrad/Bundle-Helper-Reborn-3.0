@@ -2,7 +2,7 @@
 // @name            Bundle Helper Reborn 3.0
 // @namespace       https://github.com/SentaiBrad/
 // @author          SentaiBrad
-// @version         3.0.11
+// @version         3.0.12
 // @description     Marks owned/ignored/wishlisted games on several sites, and also adds a button to open the steam page for each game.
 // @match           *://dailyindiegame.com/*
 // @match           *://old.reddit.com/*
@@ -30,6 +30,8 @@
 // @match           *://www.tiltify.com/*
 // @match           *://g2a.com/*
 // @match           *://www.g2a.com/*
+// @match           *://eneba.com/*
+// @match           *://www.eneba.com/*
 // @grant           GM_addStyle
 // @grant           GM_getValue
 // @grant           GM_setValue
@@ -1731,6 +1733,103 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 			document.body.classList.add("bh_basic_style");
 			markBySteamHref("body", "tr, .app, li");
 		},
+		"eneba.com": function() {
+			// Eneba has no Steam IDs on the page, so items are matched by title
+			// ("HELLDIVERS 2 Steam Key (PC) GLOBAL" -> "HELLDIVERS 2"). Its CSS class
+			// names are generated and change between site updates, so nothing here
+			// depends on them: cards are found from the product link's title
+			// attribute, and the product page from its single <h1>.
+			// Eneba cards move on hover; marking uses the ring/tint style, which
+			// doesn't affect size or position, and the Steam button is placed
+			// absolutely inside the card.
+			document.body.classList.add("bh_basic_style");
+			GM_addStyle(`
+				.bh_eneba_card {
+					position: relative;
+				}
+				/* Top-left: Eneba shows its wishlist heart top-right on hover. */
+				.bh_eneba_card > .bh_steamlink {
+					position: absolute;
+					top: 6px;
+					left: 6px;
+					z-index: 5;
+					line-height: 0;
+				}
+				.bh_eneba_heading > .bh_steamlink {
+					display: inline-block;
+					margin-left: 0.4em;
+					vertical-align: middle;
+					line-height: 0;
+				}
+				.bh_basic_style .bh_eneba_heading.bh_owned,
+				.bh_basic_style .bh_eneba_heading.bh_wished,
+				.bh_basic_style .bh_eneba_heading.bh_ignored {
+					padding: 0.1em 0.4em;
+					border-radius: 4px;
+				}
+			`);
+
+			// Only Steam products. Returns the game name, or "" if not a Steam product.
+			function enebaGameName(title) {
+				if (!/\bsteam\b/i.test(title)) return "";
+				return title
+					.replace(/\s*\((PC|Mac|Linux)\)\s*/gi, " ")
+					.replace(/\s+steam\s+(cd\s+)?(key|gift|account)\b.*$/i, "")
+					.trim();
+			}
+
+			// Largest ancestor (up to 8 levels) that still contains only this
+			// product's links and has an image.
+			function findEnebaCard(link) {
+				const path = new URL(link.href, location.href).pathname;
+				let best = null;
+				let el = link.parentElement;
+				for (let i = 0; el && el !== document.body && i < 8; i++, el = el.parentElement) {
+					const other = [...el.querySelectorAll("a[href]")].some((a) => {
+						const url = new URL(a.href, location.href);
+						return url.origin === location.origin && url.pathname !== path;
+					});
+					if (other) break;
+					if (el.querySelector("img")) best = el;
+				}
+				return best;
+			}
+
+			function markEneba(element, match, add_link) {
+				element.classList.remove("bh_owned", "bh_wished", "bh_ignored");
+				const cssClass = match.type === "sub" ? getClassForSubId(match.id) : getClassForAppId(match.id);
+				if (cssClass) { element.classList.add(cssClass); noteMarked(); }
+				if (!element.querySelector(":scope > .bh_steamlink")) add_link(createSteamLink(match.type, match.id));
+			}
+
+			function processEneba() {
+				// Product cards (store, search, home page rows)
+				for (const link of document.querySelectorAll("a[title][href]")) {
+					if (link.closest(".bh_eneba_card")) continue;   // card already handled
+					const name = enebaGameName(link.title);
+					if (!name) continue;
+					const card = findEnebaCard(link);
+					if (!card || card.classList.contains("bh_already_processed")) continue;
+					card.classList.add("bh_already_processed", "bh_eneba_card");
+					resolveTitle(name).then((match) => {
+						if (match) markEneba(card, match, (a) => card.appendChild(a));
+					});
+				}
+				// Product page heading
+				const heading = document.querySelector("h1:not(.bh_already_processed)");
+				if (heading) {
+					const name = enebaGameName(heading.textContent.trim());
+					if (name) {
+						heading.classList.add("bh_already_processed", "bh_eneba_heading");
+						resolveTitle(name).then((match) => {
+							if (match) markEneba(heading, match, (a) => heading.appendChild(a));
+						});
+					}
+				}
+			}
+
+			debouncedMutationObserverSelectorAll("body", processEneba, 1000);
+		},
 		"g2a.com": function() {
 			document.body.classList.add("bh_basic_style");
 			debouncedMutationObserverSelectorAll("body", () =>
@@ -1764,36 +1863,34 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 				z-index: 99;
 			}
 
-			/* Background colors and background gradient copied from Enhanced Steam browser extension */
+			/* Marking style: a bright colored ring with a soft outer glow (an
+			   optional tint is off by default).
+			   The site's own background and text colors are kept, so text stays
+			   readable on light and dark themes. Ring and tint are drawn with
+			   box-shadow and background-image, which never change an element's
+			   size or position (safe for cards that move on hover).
+			   Colors as R, G, B so the tint strength can be adjusted in one place. */
 			body {
-				--bh-bgcolor-owned: #00CE67;
-				--bh-bgcolor-wished: #0491BF;
-				--bh-bgcolor-ignored: #4F4F4F;
-				--bh-fgcolor-owned: #FFFFFF;
-				--bh-fgcolor-wished: #FFFFFF;
-				--bh-fgcolor-ignored: #FFFFFF;
+				--bh-rgb-owned: 0, 230, 118;      /* #00E676 */
+				--bh-rgb-wished: 41, 182, 246;    /* #29B6F6 */
+				--bh-rgb-ignored: 150, 150, 150;
+				--bh-ring-width: 4px;
+				--bh-glow-strength: 0.55;
+				--bh-tint-strength: 0;            /* 0 = no tint over the item */
+				--bh-ignored-opacity: 0.7;
 				--bh-steamlink-size: 24px;
 			}
-			.bh_owned {
-				--bh-bgcolor: var(--bh-bgcolor-owned);
-				--bh-fgcolor: var(--bh-fgcolor-owned);
-			}
-			.bh_wished {
-				--bh-bgcolor: var(--bh-bgcolor-wished);
-				--bh-fgcolor: var(--bh-fgcolor-wished);
-			}
-			.bh_ignored {
-				--bh-bgcolor: var(--bh-bgcolor-ignored);
-				--bh-fgcolor: var(--bh-fgcolor-ignored);
-			}
+			.bh_owned   { --bh-rgb: var(--bh-rgb-owned);   --bh-bgcolor: rgb(var(--bh-rgb-owned)); }
+			.bh_wished  { --bh-rgb: var(--bh-rgb-wished);  --bh-bgcolor: rgb(var(--bh-rgb-wished)); }
+			.bh_ignored { --bh-rgb: var(--bh-rgb-ignored); --bh-bgcolor: rgb(var(--bh-rgb-ignored)); }
 			.bh_basic_style .bh_owned,
 			.bh_basic_style .bh_wished,
 			.bh_basic_style .bh_ignored {
-				background: var(--bh-bgcolor) linear-gradient(135deg, rgba(0, 0, 0, 0.70) 10%, rgba(0, 0, 0, 0) 100%) !important;
-				color: var(--bh-fgcolor) !important;
+				box-shadow: inset 0 0 0 var(--bh-ring-width) rgb(var(--bh-rgb)), 0 0 10px 1px rgba(var(--bh-rgb), var(--bh-glow-strength)) !important;
+				background-image: linear-gradient(rgba(var(--bh-rgb), var(--bh-tint-strength)), rgba(var(--bh-rgb), var(--bh-tint-strength))) !important;
 			}
 			.bh_basic_style .bh_ignored {
-				opacity: 0.3;
+				opacity: var(--bh-ignored-opacity);
 			}
 
 			.bh_steamlink svg {

@@ -4,9 +4,9 @@ A userscript that marks the games you already own, have wishlisted, or have igno
 
 If you buy games outside of Steam, it shows at a glance what you already have, without looking each game up manually.
 
-- **Green:** owned
-- **Blue:** wishlisted
-- **Gray and faded:** ignored
+- **Green ring:** owned
+- **Blue ring:** wishlisted
+- **Gray ring, faded:** ignored
 
 ## Install
 
@@ -33,6 +33,7 @@ Updates are picked up automatically from this repository.
 - SteamGround
 
 **Matches by game title when the page has no Steam ID:**
+- Eneba (Steam products only)
 - Humble Bundle
 - itch.io (including `*.itch.io` pages)
 

@@ -1,5 +1,10 @@
 # Changelog
 
+## 3.0.12
+
+- **Easier-to-read marking.** Owned and wishlisted items now get a bright colored ring with a soft glow (green owned, blue wishlisted) instead of a solid green/blue fill with forced white text. The item's own colors and text are untouched, so it stays readable on dark sites and with dark themes. Ignored items get a gray ring and are faded much less (70% instead of 30%). Colors, ring width, glow, an optional tint (off by default) and the fade are CSS variables (`--bh-rgb-owned`, `--bh-ring-width`, `--bh-glow-strength`, `--bh-tint-strength`, `--bh-ignored-opacity`) for a future settings panel.
+- **Eneba support** (store, search, home page rows and product pages). Eneba shows no Steam IDs, so items are matched by title ("HELLDIVERS 2 Steam Key (PC) GLOBAL" is looked up as "HELLDIVERS 2"). Only Steam products are checked. Cards are found without Eneba's generated class names. The ring doesn't change card size, so Eneba's hover animation is unaffected, and the Steam button sits top-left, clear of Eneba's wishlist heart.
+
 ## 3.0.11
 
 - Debug view: the tab row is a single fixed line, and "copied" now appears as a small label floating over the report's corner, so pressing [copy] no longer shifts the layout.
