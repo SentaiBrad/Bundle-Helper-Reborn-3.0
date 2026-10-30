@@ -2,7 +2,7 @@
 // @name            Bundle Helper Reborn 3.0
 // @namespace       https://github.com/SentaiBrad/
 // @author          SentaiBrad
-// @version         3.0.16
+// @version         3.0.17
 // @description     Marks owned/ignored/wishlisted games on several sites, and also adds a button to open the steam page for each game.
 // @match           *://dailyindiegame.com/*
 // @match           *://old.reddit.com/*
@@ -980,7 +980,7 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 					const cssClass = getClassForAppId(app) || getClassForSubId(sub);
 					if (cssClass) {
 						closest.classList.add(cssClass);
-					noteMarked();
+						noteMarked();
 					}
 
 					const steam_link = createSteamLink(app ? "app" : "sub", app || sub);
@@ -1633,7 +1633,6 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 			`);
 		},
 		"humblebundle.com": function() {
-            console.log("BH: humblebundle handler running");
 			document.body.classList.add("bh_basic_style");
 			GM_addStyle(`
 				/* Humble: frame and label on the image (.bh_card), not the whole tile. */
@@ -1656,7 +1655,6 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 
 
 			function processTiles() {
-				console.log("BH: processTiles called, tiles found:", document.querySelectorAll(".tier-item-view:not(.bh_already_processed)").length);
 				for (const tile of document.querySelectorAll(".tier-item-view:not(.bh_already_processed)")) {
 					tile.classList.add("bh_already_processed");
 					const title_elem = tile.querySelector(".item-title");
@@ -1677,7 +1675,6 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 				}
 			}
 
-			console.log("BH: setting up observer, body exists:", !!document.body);
 			processTiles();
 			debouncedMutationObserverSelectorAll("body", processTiles, 2000);
 		},
@@ -1691,51 +1688,51 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 			document.body.classList.add("bh_basic_style");
 			markBySteamHref("body", ".product, .game-card, article, li");
 		},
-                "itch.io": function() {
-                        document.body.classList.add("bh_basic_style");
-                        GM_addStyle(`
-                                .bh_basic_style .index_game_cell_widget.bh_owned   { outline: 3px solid var(--bh-bgcolor); outline-offset: -3px; }
-                                .bh_basic_style .index_game_cell_widget.bh_wished  { outline: 3px solid var(--bh-bgcolor); outline-offset: -3px; }
-                                .bh_basic_style .index_game_cell_widget.bh_ignored { outline: 3px solid var(--bh-bgcolor); outline-offset: -3px; }
-                        `);
+		"itch.io": function() {
+			document.body.classList.add("bh_basic_style");
+			GM_addStyle(`
+				.bh_basic_style .index_game_cell_widget.bh_owned   { outline: 3px solid var(--bh-bgcolor); outline-offset: -3px; }
+				.bh_basic_style .index_game_cell_widget.bh_wished  { outline: 3px solid var(--bh-bgcolor); outline-offset: -3px; }
+				.bh_basic_style .index_game_cell_widget.bh_ignored { outline: 3px solid var(--bh-bgcolor); outline-offset: -3px; }
+			`);
 
-                        function processItchTiles() {
-                                const tiles = document.querySelectorAll(".index_game_cell_widget.game_cell:not(.bh_already_processed)");
-                                console.log("BH itch.io: processItchTiles called, tiles found:", tiles.length);
-                                for (const tile of tiles) {
-                                        tile.classList.add("bh_already_processed");
-                                        const title_elem = tile.querySelector(".game_title, .title");
-                                        if (!title_elem) continue;
-                                        const title = ([...title_elem.childNodes].filter(n => n.nodeType === Node.TEXT_NODE).map(n => n.textContent.trim()).join("")).trim();
-                                        if (!title) debug_log.add("error", `itch.io tile title came out empty; tile text is ${JSON.stringify(title_elem.textContent.trim().slice(0, 80))}`);
-                                        resolveTitle(title).then((match) => {
-                                                if (!match) return;
-                                                tile.classList.remove("bh_owned", "bh_wished", "bh_ignored");
-                                                const cssClass = match.type === "sub" ? getClassForSubId(match.id) : getClassForAppId(match.id);
-                                                if (cssClass) { tile.classList.add(cssClass); noteMarked(); }
-                                                const thumb = tile.querySelector("a.game_thumb");
-                                                if (thumb && !thumb.querySelector(".bh_steamlink")) {
-                                                        const link = createSteamLink(match.type, match.id);
-                                                        link.style.position = "absolute";
-                                                        link.style.bottom = "4px";
-                                                        link.style.right = "4px";
-                                                        link.style.zIndex = "10";                                                        thumb.appendChild(link);
-                                                }
-                                        });
-                                }
-                        }
+			function processItchTiles() {
+				const tiles = document.querySelectorAll(".index_game_cell_widget.game_cell:not(.bh_already_processed)");
+				for (const tile of tiles) {
+					tile.classList.add("bh_already_processed");
+					const title_elem = tile.querySelector(".game_title, .title");
+					if (!title_elem) continue;
+					const title = ([...title_elem.childNodes].filter(n => n.nodeType === Node.TEXT_NODE).map(n => n.textContent.trim()).join("")).trim();
+					if (!title) debug_log.add("error", `itch.io tile title came out empty; tile text is ${JSON.stringify(title_elem.textContent.trim().slice(0, 80))}`);
+					resolveTitle(title).then((match) => {
+						if (!match) return;
+						tile.classList.remove("bh_owned", "bh_wished", "bh_ignored");
+						const cssClass = match.type === "sub" ? getClassForSubId(match.id) : getClassForAppId(match.id);
+						if (cssClass) { tile.classList.add(cssClass); noteMarked(); }
+						const thumb = tile.querySelector("a.game_thumb");
+						if (thumb && !thumb.querySelector(".bh_steamlink")) {
+							const link = createSteamLink(match.type, match.id);
+							link.style.position = "absolute";
+							link.style.bottom = "4px";
+							link.style.right = "4px";
+							link.style.zIndex = "10";
+							thumb.appendChild(link);
+						}
+					});
+				}
+			}
 
-                        // Retry loop: tiles load after script fires, keep trying for 10 seconds
-                        let _itchRetries = 0;
-                        function _itchRetry() {
-                                processItchTiles();
-                                if (document.querySelectorAll(".index_game_cell_widget.game_cell").length === 0 && _itchRetries++ < 10) {
-                                        setTimeout(_itchRetry, 1000);
-                                }
-                        }
-                        _itchRetry();
-                        debouncedMutationObserverSelectorAll("body", processItchTiles, 2000);
-                },
+			// Retry loop: tiles load after script fires, keep trying for 10 seconds
+			let _itchRetries = 0;
+			function _itchRetry() {
+				processItchTiles();
+				if (document.querySelectorAll(".index_game_cell_widget.game_cell").length === 0 && _itchRetries++ < 10) {
+					setTimeout(_itchRetry, 1000);
+				}
+			}
+			_itchRetry();
+			debouncedMutationObserverSelectorAll("body", processItchTiles, 2000);
+		},
 		"tiltify.com": function() {
 			document.body.classList.add("bh_basic_style");
 			debouncedMutationObserverSelectorAll("body", () =>

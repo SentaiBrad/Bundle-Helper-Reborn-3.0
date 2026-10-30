@@ -1,5 +1,9 @@
 # Changelog
 
+## 3.0.17
+
+- Internal cleanup. No change in behavior.
+
 ## 3.0.16
 
 - **Faster marking on busy pages.** Page watchers now rescan at a steady rate (soon after a change, then at most once per interval) instead of waiting for the page to go quiet. Fanatical's page never goes quiet, so marking took about 7 seconds. This is the likely cause of the old "loading takes forever, sometimes never".
