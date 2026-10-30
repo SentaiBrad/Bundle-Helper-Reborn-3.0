@@ -1,5 +1,10 @@
 # Changelog
 
+## 3.0.14
+
+- The OWNED / WISHLIST / IGNORED label is now a full-width colored band across the top of the card, and the outline is thicker (4px), so marked cards stand out from unmarked ones at a glance. Eneba draws its own thin border on every card, which is why the 3.0.13 outline blended in.
+- Eneba's Steam button sits on the band's left end.
+
 ## 3.0.13
 
 - **New marking look (all sites):** a solid outline drawn on top of the item (green owned, blue wishlisted, gray dashed ignored) plus a small **OWNED / WISHLIST / IGNORED** label on card-style items (Eneba, Humble, Fanatical). The item's own colors are untouched and nothing is faded any more. The 3.0.12 ring was drawn underneath the card's picture, so it was barely visible, and the fade on ignored items read as "greyed out".

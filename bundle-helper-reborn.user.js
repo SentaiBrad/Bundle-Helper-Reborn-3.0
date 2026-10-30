@@ -2,7 +2,7 @@
 // @name            Bundle Helper Reborn 3.0
 // @namespace       https://github.com/SentaiBrad/
 // @author          SentaiBrad
-// @version         3.0.13
+// @version         3.0.14
 // @description     Marks owned/ignored/wishlisted games on several sites, and also adds a button to open the steam page for each game.
 // @match           *://dailyindiegame.com/*
 // @match           *://old.reddit.com/*
@@ -1743,14 +1743,14 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 			GM_addStyle(`
 				.bh_eneba_card {
 					position: relative;
-					--bh-label-left: 38px;   /* right of the Steam button */
 				}
-				/* Top-left: Eneba shows its wishlist heart top-right on hover. */
+				/* Top-left, on top of the label band. (Eneba shows its wishlist
+				   heart top-right on hover.) */
 				.bh_eneba_card > .bh_steamlink {
 					position: absolute;
-					top: 6px;
-					left: 6px;
-					z-index: 5;
+					top: 0;
+					left: 0;
+					z-index: 7;
 					line-height: 0;
 				}
 				.bh_eneba_heading > .bh_steamlink {
@@ -1870,10 +1870,8 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 				--bh-color-owned: #22e07a;
 				--bh-color-wished: #3db8ff;
 				--bh-color-ignored: #9a9a9a;
-				--bh-outline-width: 3px;
+				--bh-outline-width: 4px;
 				--bh-label-text-color: #0b0b0b;
-				--bh-label-top: 8px;
-				--bh-label-left: 8px;
 				--bh-steamlink-size: 24px;
 			}
 			.bh_owned   { --bh-color: var(--bh-color-owned);   --bh-bgcolor: var(--bh-color-owned);   --bh-outline-style: solid;  --bh-label: "OWNED"; }
@@ -1885,22 +1883,25 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 				outline: var(--bh-outline-width) var(--bh-outline-style) var(--bh-color) !important;
 				outline-offset: calc(-1 * var(--bh-outline-width));
 			}
-			/* Label on card-style items (the element with .bh_card must be positioned). */
+			/* Label on card-style items: a full-width band across the top of the
+			   card (the element with .bh_card must be positioned). */
 			.bh_owned.bh_card::after,   .bh_owned .bh_card::after,
 			.bh_wished.bh_card::after,  .bh_wished .bh_card::after,
 			.bh_ignored.bh_card::after, .bh_ignored .bh_card::after {
 				content: var(--bh-label);
 				position: absolute;
-				top: var(--bh-label-top);
-				left: var(--bh-label-left);
+				top: 0;
+				left: 0;
+				right: 0;
 				z-index: 6;
 				pointer-events: none;
-				font: 700 11px/1 sans-serif;
-				letter-spacing: 0.04em;
-				padding: 4px 6px;
-				border-radius: 3px;
+				padding: 6px 0;
+				text-align: center;
+				font: 800 12px/1 sans-serif;
+				letter-spacing: 0.12em;
 				background: var(--bh-color);
 				color: var(--bh-label-text-color);
+				box-shadow: 0 2px 6px rgba(0, 0, 0, 0.45);
 			}
 
 			.bh_steamlink svg {
