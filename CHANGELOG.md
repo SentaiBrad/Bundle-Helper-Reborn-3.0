@@ -1,5 +1,9 @@
 # Changelog
 
+## 3.0.15
+
+- Eneba: the label band stops short of the top-right corner, so Eneba's wishlist heart is no longer covered.
+
 ## 3.0.14
 
 - The OWNED / WISHLIST / IGNORED label is now a full-width colored band across the top of the card, and the outline is thicker (4px), so marked cards stand out from unmarked ones at a glance. Eneba draws its own thin border on every card, which is why the 3.0.13 outline blended in.

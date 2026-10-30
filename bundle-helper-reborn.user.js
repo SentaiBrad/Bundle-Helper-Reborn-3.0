@@ -2,7 +2,7 @@
 // @name            Bundle Helper Reborn 3.0
 // @namespace       https://github.com/SentaiBrad/
 // @author          SentaiBrad
-// @version         3.0.14
+// @version         3.0.15
 // @description     Marks owned/ignored/wishlisted games on several sites, and also adds a button to open the steam page for each game.
 // @match           *://dailyindiegame.com/*
 // @match           *://old.reddit.com/*
@@ -1743,6 +1743,7 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 			GM_addStyle(`
 				.bh_eneba_card {
 					position: relative;
+					--bh-band-right: 44px;   /* keep Eneba's wishlist heart (top-right) visible */
 				}
 				/* Top-left, on top of the label band. (Eneba shows its wishlist
 				   heart top-right on hover.) */
@@ -1892,7 +1893,7 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 				position: absolute;
 				top: 0;
 				left: 0;
-				right: 0;
+				right: var(--bh-band-right, 0);   /* sites can keep a corner free */
 				z-index: 6;
 				pointer-events: none;
 				padding: 6px 0;
