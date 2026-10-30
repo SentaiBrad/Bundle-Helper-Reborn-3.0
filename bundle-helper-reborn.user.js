@@ -2,7 +2,7 @@
 // @name            Bundle Helper Reborn 3.0
 // @namespace       https://github.com/SentaiBrad/
 // @author          SentaiBrad
-// @version         3.0.5
+// @version         3.0.6
 // @description     Marks owned/ignored/wishlisted games on several sites, and also adds a button to open the steam page for each game.
 // @match           *://dailyindiegame.com/*
 // @match           *://old.reddit.com/*
@@ -650,7 +650,7 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 	// 1 day. Changing title_cache_version discards everything (e.g. after the
 	// matching rules change, so old misses get another chance).
 	const title_cache_name = "bh_title_cache";
-	const title_cache_version = 2;
+	const title_cache_version = 3;
 	const title_cache_match_days = 30;
 	const title_cache_miss_days = 1;
 	let title_cache = null;
@@ -734,17 +734,26 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 		// Search the part before ":" or " - " ("FEAR"), then check the packages
 		// of games whose name starts the store title.
 		const base = title.split(/:|\s[-–—]\s/)[0].trim();
-		let pool = candidates;
-		if (base && normalizeTitle(base) !== normalizeTitle(title)) {
-			const more = await searchSteamApps(base);
-			if (more === null) had_error = true;
-			else pool = pool.concat(more);
-		}
 		const wanted = normalizeTitle(spellGreek(title));
 		const games = [];
-		for (const c of pool) {
-			const key = normalizeTitle(spellGreek(c.title));
-			if (key && (wanted === key || wanted.startsWith(key + " ")) && !games.includes(c.appid)) games.push(c.appid);
+		const addGames = (list) => {
+			for (const c of list) {
+				const key = normalizeTitle(spellGreek(c.title));
+				if (key && (wanted === key || wanted.startsWith(key + " ")) && !games.includes(c.appid)) games.push(c.appid);
+			}
+		};
+		addGames(candidates);
+		if (!games.length && base && normalizeTitle(base) !== normalizeTitle(title)) {
+			const more = await searchSteamApps(base);
+			if (more === null) had_error = true;
+			else addGames(more);
+		}
+		// Steam's search can't find "FEAR" but finds "F.E.A.R.". For a single
+		// all-caps word (FEAR, STALKER, QUBE), also try it spelled with dots.
+		if (!games.length && /^[A-Z]{2,8}$/.test(base)) {
+			const dotted = await searchSteamApps(base.split("").join(".") + ".");
+			if (dotted === null) had_error = true;
+			else addGames(dotted);
 		}
 		for (const game of games.slice(0, 2)) {
 			const packages = await getSteamPackages(game);

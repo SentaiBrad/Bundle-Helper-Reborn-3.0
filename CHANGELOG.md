@@ -1,5 +1,10 @@
 # Changelog
 
+## 3.0.6
+
+- Package lookup fix: Steam's search doesn't find F.E.A.R. when searched as "FEAR" (it returns Fear & Hunger and others), but does as "F.E.A.R.". When the part before the colon is a single all-caps word of 2 to 8 letters (FEAR, STALKER, QUBE), the package lookup also searches it spelled with dots. This only runs when the earlier searches found nothing.
+- Saved lookups are discarded once, so misses saved by 3.0.5 are retried.
+
 ## 3.0.5
 
 - **Steam packages.** When a title isn't a single Steam game, the script checks whether it's a Steam package (a compilation or edition sold under its own name), and colors it by your owned packages. Example: Humble's "FEAR: Ultimate Shooter Edition" is Steam package 4384, which is sold on the F.E.A.R. store page.
