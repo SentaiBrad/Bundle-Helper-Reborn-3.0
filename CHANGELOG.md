@@ -1,5 +1,12 @@
 # Changelog
 
+## 3.0.5
+
+- **Steam packages.** When a title isn't a single Steam game, the script checks whether it's a Steam package (a compilation or edition sold under its own name), and colors it by your owned packages. Example: Humble's "FEAR: Ultimate Shooter Edition" is Steam package 4384, which is sold on the F.E.A.R. store page.
+- How: it searches the part before ":" or " - " ("FEAR"), then reads the package list of up to 2 matching games through Steam's public store data. No Steam API key needed. This only runs when the normal lookup finds nothing, and the result is saved like other lookups.
+- The Steam button on a package tile opens the package page (`/sub/...`).
+- Saved lookups from 3.0.4 are discarded once (format change), so the first visit to each bundle searches again.
+
 ## 3.0.4
 
 - **Saved title lookups.** Humble Bundle and itch.io title lookups are now remembered between visits: matches for 30 days, misses for 1 day. A repeat visit to a bundle makes no Steam searches. Failed searches (network errors, Steam errors) are never saved. Identical titles on one page share a single search.

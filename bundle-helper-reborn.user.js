@@ -2,7 +2,7 @@
 // @name            Bundle Helper Reborn 3.0
 // @namespace       https://github.com/SentaiBrad/
 // @author          SentaiBrad
-// @version         3.0.4
+// @version         3.0.5
 // @description     Marks owned/ignored/wishlisted games on several sites, and also adds a button to open the steam page for each game.
 // @match           *://dailyindiegame.com/*
 // @match           *://old.reddit.com/*
@@ -650,7 +650,7 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 	// 1 day. Changing title_cache_version discards everything (e.g. after the
 	// matching rules change, so old misses get another chance).
 	const title_cache_name = "bh_title_cache";
-	const title_cache_version = 1;
+	const title_cache_version = 2;
 	const title_cache_match_days = 30;
 	const title_cache_miss_days = 1;
 	let title_cache = null;
@@ -661,7 +661,7 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 		title_cache = (stored && stored.version === title_cache_version && stored.entries) ? stored.entries : {};
 		const now = getUnixTimestamp();
 		for (const [key, entry] of Object.entries(title_cache)) {
-			const max_age = (entry?.appid ? title_cache_match_days : title_cache_miss_days) * 86400;
+			const max_age = (entry?.match ? title_cache_match_days : title_cache_miss_days) * 86400;
 			if (!entry || !(now - entry.time <= max_age)) delete title_cache[key];
 		}
 		return title_cache;
@@ -673,39 +673,102 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 
 	const pending_title_lookups = new Map();
 
-	function resolveTitle(title) {
-		const key = normalizeTitle(spellGreek(title)) || title.trim().toLowerCase();
-		if (!key) return Promise.resolve(0);
-		const cache = loadTitleCache();
-		if (cache[key]) return Promise.resolve(cache[key].appid);
-		if (pending_title_lookups.has(key)) return pending_title_lookups.get(key);
-
-		const lookup = new Promise((resolve) => {
+	// GET from store.steampowered.com. Resolves to the response, or null on a
+	// network/HTTP error (so the caller knows not to cache a miss).
+	function steamGet(url, responseType) {
+		return new Promise((resolve) => {
 			GM_xmlhttpRequest({
 				method: "GET",
-				url: "https://store.steampowered.com/search/suggest?term=" + encodeURIComponent(title) + "&f=games&cc=US&realm=1&l=english",
-				onload: function(response) {
-					if (response.status !== 200) {
-						// Don't remember failures; try again next time.
-						resolve(0);
-						return;
-					}
-					const doc = new DOMParser().parseFromString(response.responseText, "text/html");
-					const candidates = [];
-					for (const result of doc.querySelectorAll("a[data-ds-appid]")) {
-						const appid = Number((result.dataset.dsAppid ?? "").split(",")[0]);
-						const result_title = result.querySelector(".match_name")?.textContent?.trim() ?? "";
-						if (appid && result_title) candidates.push({appid, title: result_title});
-					}
-					const appid = pickSteamMatch(title, candidates);
-					cache[key] = {appid, time: getUnixTimestamp()};
-					saveTitleCache();
-					resolve(appid);
-				},
-				onerror: () => resolve(0),
-				onabort: () => resolve(0),
-				ontimeout: () => resolve(0),
+				url: url,
+				responseType: responseType,
+				onload: (response) => resolve(response.status === 200 ? response : null),
+				onerror: () => resolve(null),
+				onabort: () => resolve(null),
+				ontimeout: () => resolve(null),
 			});
+		});
+	}
+
+	// Steam's search suggestions (games only). Resolves to [{appid, title}] or null on error.
+	async function searchSteamApps(term) {
+		const response = await steamGet("https://store.steampowered.com/search/suggest?term=" + encodeURIComponent(term) + "&f=games&cc=US&realm=1&l=english");
+		if (!response) return null;
+		const doc = new DOMParser().parseFromString(response.responseText, "text/html");
+		const candidates = [];
+		for (const result of doc.querySelectorAll("a[data-ds-appid]")) {
+			const appid = Number((result.dataset.dsAppid ?? "").split(",")[0]);
+			const result_title = result.querySelector(".match_name")?.textContent?.trim() ?? "";
+			if (appid && result_title) candidates.push({appid, title: result_title});
+		}
+		return candidates;
+	}
+
+	// The packages a game is sold in, e.g. F.E.A.R. (app 21090) is sold as
+	// "FEAR: Ultimate Shooter Edition" (package 4384) and "FEAR Collection" (12357).
+	// Resolves to [{appid: packageid, title}] or null on error.
+	async function getSteamPackages(appid) {
+		const response = await steamGet("https://store.steampowered.com/api/appdetails?appids=" + appid + "&filters=package_groups&cc=us&l=english", "json");
+		if (!response) return null;
+		const packages = [];
+		for (const group of response.response?.[appid]?.data?.package_groups ?? []) {
+			for (const sub of group.subs ?? []) {
+				// option_text looks like "FEAR: Ultimate Shooter Edition - $9.99"
+				const name = String(sub.option_text ?? "").replace(/<[^>]*>/g, "").replace(/\s+-\s+[^-]*(\d|free)[^-]*$/i, "").trim();
+				if (sub.packageid && name) packages.push({appid: Number(sub.packageid), title: name});
+			}
+		}
+		return packages;
+	}
+
+	// Finds the Steam game, or failing that the Steam package, for a store title.
+	// Resolves to {type: "app"|"sub", id} or null. Only complete answers are cached.
+	async function lookupTitle(title) {
+		let had_error = false;
+
+		const candidates = await searchSteamApps(title);
+		if (candidates === null) return {result: null, cacheable: false};
+		const appid = pickSteamMatch(title, candidates);
+		if (appid) return {result: {type: "app", id: appid}, cacheable: true};
+
+		// Package fallback: compilations and editions sold as Steam packages.
+		// Search the part before ":" or " - " ("FEAR"), then check the packages
+		// of games whose name starts the store title.
+		const base = title.split(/:|\s[-–—]\s/)[0].trim();
+		let pool = candidates;
+		if (base && normalizeTitle(base) !== normalizeTitle(title)) {
+			const more = await searchSteamApps(base);
+			if (more === null) had_error = true;
+			else pool = pool.concat(more);
+		}
+		const wanted = normalizeTitle(spellGreek(title));
+		const games = [];
+		for (const c of pool) {
+			const key = normalizeTitle(spellGreek(c.title));
+			if (key && (wanted === key || wanted.startsWith(key + " ")) && !games.includes(c.appid)) games.push(c.appid);
+		}
+		for (const game of games.slice(0, 2)) {
+			const packages = await getSteamPackages(game);
+			if (packages === null) { had_error = true; continue; }
+			const packageid = pickSteamMatch(title, packages);
+			if (packageid) return {result: {type: "sub", id: packageid}, cacheable: true};
+		}
+		return {result: null, cacheable: !had_error};
+	}
+
+	// Resolves to {type: "app"|"sub", id} or null.
+	function resolveTitle(title) {
+		const key = normalizeTitle(spellGreek(title)) || title.trim().toLowerCase();
+		if (!key) return Promise.resolve(null);
+		const cache = loadTitleCache();
+		if (cache[key]) return Promise.resolve(cache[key].match);
+		if (pending_title_lookups.has(key)) return pending_title_lookups.get(key);
+
+		const lookup = lookupTitle(title).then(({result, cacheable}) => {
+			if (cacheable) {
+				cache[key] = {match: result, time: getUnixTimestamp()};
+				saveTitleCache();
+			}
+			return result;
 		}).finally(() => pending_title_lookups.delete(key));
 		pending_title_lookups.set(key, lookup);
 		return lookup;
@@ -1094,14 +1157,14 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 					const title_elem = tile.querySelector(".item-title");
 					if (!title_elem) continue;
 					const title = ([...title_elem.childNodes].filter(n => n.nodeType === Node.TEXT_NODE).map(n => n.textContent.trim()).join("")).trim();
-					resolveTitle(title).then((appid) => {
-						if (!appid) return;
+					resolveTitle(title).then((match) => {
+						if (!match) return;
 						tile.classList.remove("bh_owned", "bh_wished", "bh_ignored");
-						const cssClass = getClassForAppId(appid);
+						const cssClass = match.type === "sub" ? getClassForSubId(match.id) : getClassForAppId(match.id);
 						if (cssClass) tile.classList.add(cssClass);
 						const img_container = tile.querySelector(".img-container");
 						if (img_container && !img_container.querySelector(".bh_steamlink")) {
-							img_container.appendChild(createSteamLink("app", appid));
+							img_container.appendChild(createSteamLink(match.type, match.id));
 						}
 					});
 				}
@@ -1137,14 +1200,14 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
                                         const title_elem = tile.querySelector(".game_title, .title");
                                         if (!title_elem) continue;
                                         const title = ([...title_elem.childNodes].filter(n => n.nodeType === Node.TEXT_NODE).map(n => n.textContent.trim()).join("")).trim();
-                                        resolveTitle(title).then((appid) => {
-                                                if (!appid) return;
+                                        resolveTitle(title).then((match) => {
+                                                if (!match) return;
                                                 tile.classList.remove("bh_owned", "bh_wished", "bh_ignored");
-                                                const cssClass = getClassForAppId(appid);
+                                                const cssClass = match.type === "sub" ? getClassForSubId(match.id) : getClassForAppId(match.id);
                                                 if (cssClass) tile.classList.add(cssClass);
                                                 const thumb = tile.querySelector("a.game_thumb");
                                                 if (thumb && !thumb.querySelector(".bh_steamlink")) {
-                                                        const link = createSteamLink("app", appid);
+                                                        const link = createSteamLink(match.type, match.id);
                                                         link.style.position = "absolute";
                                                         link.style.bottom = "4px";
                                                         link.style.right = "4px";
