@@ -2,7 +2,7 @@
 // @name            Bundle Helper Reborn 3.0
 // @namespace       https://github.com/SentaiBrad/
 // @author          SentaiBrad
-// @version         3.0.15
+// @version         3.0.16
 // @description     Marks owned/ignored/wishlisted games on several sites, and also adds a button to open the steam page for each game.
 // @match           *://dailyindiegame.com/*
 // @match           *://old.reddit.com/*
@@ -156,6 +156,23 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 		};
 	}
 
+	// Runs the callback soon after changes, then at most once per `interval`
+	// while changes keep coming. Unlike debounce it can't be postponed forever
+	// by a page that never stops changing (Fanatical took 7 s to mark with debounce).
+	function throttle(callback, interval = 1000) {
+		let timer = null;
+		let last_run = 0;
+		return function() {
+			if (timer) return;
+			const wait = Math.max(150, last_run + interval - Date.now());
+			timer = setTimeout(() => {
+				timer = null;
+				last_run = Date.now();
+				callback();
+			}, wait);
+		};
+	}
+
 	const active_mutation_observers = [];
 
 	function stopAllMutationObservers() {
@@ -168,7 +185,7 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 	// Returns a new MutationObserver that observes a specific node.
 	// The observer will be immediately active.
 	function debouncedMutationObserver(rootNode, callback, timeout = 500) {
-		const func = debounce(callback, timeout);
+		const func = throttle(callback, timeout);
 		func();
 		const observer = new MutationObserver(func);
 		observer.observe(rootNode, {
@@ -1334,6 +1351,11 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 		"fanatical.com": function() {
 			document.body.classList.add("bh_basic_style");
 			GM_addStyle(`
+				/* Fanatical puts its own badges (NEW TO BUNDLE, IN LIBRARY) top-left. */
+				.bh_card {
+					--bh-band-align: right;
+					--bh-band-padding-x: 12px;
+				}
 				.bh_steamlink {
 					position: absolute;
 					bottom: 0;
@@ -1614,13 +1636,7 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
             console.log("BH: humblebundle handler running");
 			document.body.classList.add("bh_basic_style");
 			GM_addStyle(`
-				/* Humble: outline and label on the image, not the whole tile. */
-				.bh_basic_style .tier-item-view.bh_owned   .img-container,
-				.bh_basic_style .tier-item-view.bh_wished  .img-container,
-				.bh_basic_style .tier-item-view.bh_ignored .img-container {
-					outline: var(--bh-outline-width) var(--bh-outline-style) var(--bh-color);
-					outline-offset: calc(-1 * var(--bh-outline-width));
-				}
+				/* Humble: frame and label on the image (.bh_card), not the whole tile. */
 				.bh_basic_style .tier-item-view.bh_owned,
 				.bh_basic_style .tier-item-view.bh_wished,
 				.bh_basic_style .tier-item-view.bh_ignored {
@@ -1884,6 +1900,24 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 				outline: var(--bh-outline-width) var(--bh-outline-style) var(--bh-color) !important;
 				outline-offset: calc(-1 * var(--bh-outline-width));
 			}
+			/* Card-style items get their frame as an overlay drawn on top of the
+			   card (an outline can be hidden under the card's image), and no outline. */
+			.bh_basic_style .bh_card.bh_owned,  .bh_basic_style .bh_owned .bh_card,
+			.bh_basic_style .bh_card.bh_wished, .bh_basic_style .bh_wished .bh_card,
+			.bh_basic_style .bh_card.bh_ignored, .bh_basic_style .bh_ignored .bh_card {
+				outline: none !important;
+			}
+			.bh_owned.bh_card::before,   .bh_owned .bh_card::before,
+			.bh_wished.bh_card::before,  .bh_wished .bh_card::before,
+			.bh_ignored.bh_card::before, .bh_ignored .bh_card::before {
+				content: "";
+				position: absolute;
+				inset: 0;
+				z-index: 6;
+				pointer-events: none;
+				border: var(--bh-outline-width) var(--bh-outline-style) var(--bh-color);
+				border-radius: inherit;
+			}
 			/* Label on card-style items: a full-width band across the top of the
 			   card (the element with .bh_card must be positioned). */
 			.bh_owned.bh_card::after,   .bh_owned .bh_card::after,
@@ -1896,8 +1930,8 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 				right: var(--bh-band-right, 0);   /* sites can keep a corner free */
 				z-index: 6;
 				pointer-events: none;
-				padding: 6px 0;
-				text-align: center;
+				padding: 6px var(--bh-band-padding-x, 0);
+				text-align: var(--bh-band-align, center);
 				font: 800 12px/1 sans-serif;
 				letter-spacing: 0.12em;
 				background: var(--bh-color);

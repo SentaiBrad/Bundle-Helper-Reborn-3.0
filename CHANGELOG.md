@@ -1,5 +1,11 @@
 # Changelog
 
+## 3.0.16
+
+- **Faster marking on busy pages.** Page watchers now rescan at a steady rate (soon after a change, then at most once per interval) instead of waiting for the page to go quiet. Fanatical's page never goes quiet, so marking took about 7 seconds. This is the likely cause of the old "loading takes forever, sometimes never".
+- **Card frame drawn on top.** Card-style items (Eneba, Humble, Fanatical) get their frame as an overlay above the card, so the card's image can't hide it. Fanatical previously showed the frame around the bottom half only.
+- **Fanatical:** the label text is right-aligned, clear of Fanatical's own top-left badges (NEW TO BUNDLE, IN LIBRARY), which were cutting it off.
+
 ## 3.0.15
 
 - Eneba: the label band stops short of the top-right corner, so Eneba's wishlist heart is no longer covered.
