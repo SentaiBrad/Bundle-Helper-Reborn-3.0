@@ -2,7 +2,7 @@
 // @name            Bundle Helper Reborn 3.0
 // @namespace       https://github.com/SentaiBrad/
 // @author          SentaiBrad
-// @version         3.0.2
+// @version         3.0.3
 // @description     Marks owned/ignored/wishlisted games on several sites, and also adds a button to open the steam page for each game.
 // @match           *://dailyindiegame.com/*
 // @match           *://old.reddit.com/*
@@ -570,6 +570,27 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 		});
 	}
 
+        // Makes store titles comparable: "F.E.A.R. 2: Project Origin™" and
+        // "FEAR 2 - Project Origin" both become "fear 2 project origin".
+        function normalizeTitle(title) {
+                return title
+                        .replace(/[™®©]/g, "")               // before NFKD, which turns ™ into "TM"
+                        .normalize("NFKD")
+                        .replace(/[\u0300-\u036f]/g, "")    // accents
+                        .replace(/&/g, " and ")
+                        .toLowerCase()
+                        .replace(/['’.]/g, "")               // F.E.A.R. -> fear, Assassin's -> assassins
+                        .replace(/[^a-z0-9]+/g, " ")          // other punctuation -> space
+                        .trim();
+        }
+
+        // Non-Latin titles normalize to "", so those fall back to a plain case-insensitive compare.
+        function titlesMatch(a, b) {
+                const na = normalizeTitle(a), nb = normalizeTitle(b);
+                if (na && nb) return na === nb;
+                return a.trim().toLowerCase() === b.trim().toLowerCase();
+        }
+
         const title_appid_cache = new Map();
 			function resolveTitle(title) {
 				if (title_appid_cache.has(title)) {
@@ -586,7 +607,7 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
                                 let appid = 0;
                                 for (const result of results) {
                                         const resultTitle = result.querySelector(".match_name")?.textContent?.trim() ?? "";
-                                        if (resultTitle.toLowerCase() === title.toLowerCase()) { appid = Number(result.dataset?.dsAppid ?? 0); break; }
+                                        if (titlesMatch(resultTitle, title)) { appid = Number(result.dataset?.dsAppid ?? 0); break; }
                                 }
                                 title_appid_cache.set(title, appid);
                                 resolve(appid);

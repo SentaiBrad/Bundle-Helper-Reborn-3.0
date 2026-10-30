@@ -1,5 +1,9 @@
 # Changelog
 
+## 3.0.3
+
+- Title matching (Humble Bundle, itch.io) now ignores case, periods, apostrophes, other punctuation, accents, ™/®/© and "&" vs "and". For example, Humble's "FEAR 2: Project Origin" now matches Steam's "F.E.A.R. 2: Project Origin". Titles still have to match word for word, so editions and sequels aren't guessed.
+
 ## 3.0.2
 
 - **Back to the working 2.0 code.** 3.0.0 and 3.0.1 were built on a merge with Bundle Dude 2.9.13, and Humble Bundle tiles stopped being colored. 3.0.2 uses the last working 2.0 Extended code (2.9.6) unchanged. Only the name, update links and credits are new.
