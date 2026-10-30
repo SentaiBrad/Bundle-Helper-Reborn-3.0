@@ -17,6 +17,8 @@ If you'd rather not write code, open an issue with the page URL and what you exp
 
 ## Guidelines
 
+- **Panel features go in their own section.** The corner panel is built from sections registered with `addPanelSection({id, html, css, init(panel), update(panel)})`. Add a section rather than editing existing ones.
+- **Log through `debug_log.add(category, message)`**, not bare `console.log`, so it shows up in the bug button's report.
 - **Work in both Tampermonkey and Violentmonkey.** Only use the metadata keys and `GM_*` functions listed in [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md), and test in both when you can.
 - **Prefer real Steam IDs over titles.** Use a Steam link, Steam image URL, data attribute or site API data whenever the page has one. Fall back to title matching only when it doesn't.
 - **Don't guess.** A game that's left unmarked is better than one marked wrong. Keep title matching exact after normalization.
