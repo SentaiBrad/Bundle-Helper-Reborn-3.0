@@ -1,5 +1,21 @@
 # Changelog
 
+## 3.0.8
+
+- **Debug button.** A bug icon in the corner panel opens a debug report with [copy] and [refresh]. The report uses `[Section]` headers and `Setting = value` lines and covers:
+  - Script: version, userscript manager, page, which site handler ran
+  - Steam data: when it was last fetched, whether this page's fetch worked (and the HTTP error if not), owned/wishlisted/ignored counts, and a warning when there are no owned apps (usually not signed in to the Steam store)
+  - Title lookups: saved matches and misses, saved format version
+  - This page: how many items were marked, Steam buttons, page watchers, errors, and Fanatical's Steam data count on Fanatical
+  - The last 80 log lines: Steam fetches, every title lookup step, site handler errors
+- Steam fetch failures, site handler errors and title lookups now go through one log, shown in the report and in the browser console (`BH lookup:`, `BH steam:`, `BH error:` and so on).
+- The panel is now built from sections (`addPanelSection`), each with its own HTML, CSS, setup and update, so new panel features can be added without touching the rest. Its look is unchanged.
+
+## 3.0.7
+
+- **[retry misses]** link in the corner panel: forgets saved title misses (keeps matches) and reloads the page, so missed titles are looked up again right away.
+- Title lookups log each step to the browser console (filter on `BH lookup`): the exact title read from the page, Steam's search results, the package checks and the outcome. This is for tracking down titles that don't match.
+
 ## 3.0.6
 
 - Package lookup fix: Steam's search doesn't find F.E.A.R. when searched as "FEAR" (it returns Fear & Hunger and others), but does as "F.E.A.R.". When the part before the colon is a single all-caps word of 2 to 8 letters (FEAR, STALKER, QUBE), the package lookup also searches it spelled with dots. This only runs when the earlier searches found nothing.

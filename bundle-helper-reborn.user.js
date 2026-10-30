@@ -2,7 +2,7 @@
 // @name            Bundle Helper Reborn 3.0
 // @namespace       https://github.com/SentaiBrad/
 // @author          SentaiBrad
-// @version         3.0.6
+// @version         3.0.8
 // @description     Marks owned/ignored/wishlisted games on several sites, and also adds a button to open the steam page for each game.
 // @match           *://dailyindiegame.com/*
 // @match           *://old.reddit.com/*
@@ -236,6 +236,29 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 	}
 
 	//////////////////////////////////////////////////
+	// Debug log and state (shown by the bug button in the panel)
+
+	const debug_log = {
+		max_entries: 300,
+		entries: [],
+		// category: "steam", "lookup", "site" or "error"
+		add(category, message) {
+			this.entries.push({time: new Date(), category, message});
+			if (this.entries.length > this.max_entries) this.entries.shift();
+			const text = `BH ${category}: ${message}`;
+			if (category === "error") console.error(text); else console.info(text);
+		},
+		count(category) {
+			return this.entries.filter((e) => e.category === category).length;
+		},
+	};
+
+	const debug_state = {
+		site_handler: "",
+		steam_fetch: "not fetched on this page (saved data used)",
+	};
+
+	//////////////////////////////////////////////////
 	// Steam profile data caching
 
 	const cachename_profile_data = "bh_profile_data";
@@ -278,7 +301,8 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 	function downloadProfileData() {
 		return new Promise((resolve, reject) => {
 			function handleError(response) {
-				console.error(`Error while loading the data: status=${response.status}; statusText=${response.statusText}`);
+				debug_state.steam_fetch = `failed: HTTP ${response?.status ?? "none"} ${response?.statusText ?? ""}`.trim();
+				debug_log.add("error", `Steam profile data request ${debug_state.steam_fetch}`);
 				reject();
 			}
 
@@ -295,6 +319,8 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 				},
 				onerror: handleError,
 				onabort: function() {
+					debug_state.steam_fetch = "aborted";
+					debug_log.add("error", "Steam profile data request aborted");
 					reject();
 				},
 			});
@@ -303,6 +329,10 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 
 	function downloadAndUpdateProfileCache() {
 		return downloadProfileData().then((data) => {
+			const owned = data?.rgOwnedApps?.length ?? 0;
+			debug_state.steam_fetch = `ok at ${new Date().toLocaleTimeString()}: ${owned} owned apps`;
+			debug_log.add("steam", `profile data fetched: ${owned} owned apps, ${data?.rgOwnedPackages?.length ?? 0} owned packages, ${data?.rgWishlist?.length ?? 0} wishlisted`);
+			if (!owned) debug_log.add("error", "Steam returned 0 owned apps. Usually this means you're not signed in at store.steampowered.com in this browser.");
 			setProfileCache(data);
 		});
 	}
@@ -333,90 +363,274 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 	}
 
 	//////////////////////////////////////////////////
-	// Bundle Helper UI
+	// Bundle Helper panel (bottom-left corner)
+	//
+	// The panel is a list of sections. Each section supplies its own HTML,
+	// optional CSS, an init(panel) to hook up events and an update(panel) to
+	// refresh what it shows. New features add a section with addPanelSection()
+	// instead of editing the panel itself.
 
-	function createBundleHelperUI() {
+	// Classic "bug" icon.
+	const bug_icon_svg = `
+		<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-label="Debug" role="img">
+			<path d="M9 3.5 7.6 2.1l1-1L10.3 2.8a5 5 0 0 1 3.4 0L15.4 1.1l1 1L15 3.5A5 5 0 0 1 17 7H7a5 5 0 0 1 2-3.5Z"/>
+			<path d="M6 8h12v6a6 6 0 0 1-5.25 5.95V11h-1.5v8.95A6 6 0 0 1 6 14V8Z"/>
+			<path d="M1 9h4v1.5H1zM19 9h4v1.5h-4zM1 13.25h4v1.5H1zM19 13.25h4v1.5h-4zM2.5 19.5 5.6 16.4l1.1 1.06-3.1 3.1zM21.5 19.5l-3.1-3.1-1.1 1.06 3.1 3.1z"/>
+		</svg>
+	`;
+
+	const panel_sections = [];
+
+	function addPanelSection(section) {
+		panel_sections.push(section);
+	}
+
+	const panel_base_css = `
+		.container {
+			background: #1b2838;
+			color: #ddd;
+			padding: 0.5em;
+			border-radius: 0 0.5em 0 0;
+			border: 1px #ddd outset;
+			border-width: 1px 1px 0 0;
+			font: 12px sans-serif;
+		}
+		p {
+			margin: 0;
+		}
+		a {
+			font: inherit;
+			color: inherit;
+			text-decoration: none;
+		}
+		a:hover {
+			color: #fff;
+			text-decoration: underline;
+		}
+		.right {
+			float: right;
+			margin-left: 0.5em;
+		}
+	`;
+
+	function createPanel() {
 		const root = document.createElement("bundle-helper");
-		const shadow = root.attachShadow({
-			mode: "open",
-		});
-
+		const shadow = root.attachShadow({mode: "open"});
 		shadow.innerHTML = `
-			<style>
-				.container {
-					background: #1b2838;
-					color: #ddd;
-					padding: 0.5em;
-					border-radius: 0 0.5em 0 0;
-					border: 1px #ddd outset;
-					border-width: 1px 1px 0 0;
-					font: 12px sans-serif;
-				}
-				p {
-					margin: 0;
-				}
-				a {
-					font: inherit;
-					color: inherit;
-					text-decoration: none;
-				}
-				a:hover {
-					color: #fff;
-					text-decoration: underline;
-				}
-				#close {
-					float: right;
-				}
-			</style>
-			<div class="container">
-				<p>
-					Steam profile data <a href="javascript:;" id="refresh">last fetched <output id="age"></output> ago</a>.
-				</p>
-				<p>
-					Owned:
-					<output id="ownedApps"></output> apps,
-					<output id="ownedPackages"></output> packages.
-				</p>
-				<p>
-					Ignored:
-					<output id="ignoredApps"></output> apps,
-					<output id="ignoredPackages"></output> packages.
-				</p>
-				<p>
-					<a href="javascript:;" id="close">[close]</a>
-					Wishlisted:
-					<output id="wishlist"></output> apps.
-				</p>
-			</div>
+			<style>${panel_base_css}${panel_sections.map((s) => s.css ?? "").join("\n")}</style>
+			<div class="container">${panel_sections.map((s) => `<div data-section="${s.id}">${s.html}</div>`).join("")}</div>
 		`;
 
-		function updateUI() {
-			const age = getProfileCacheAge() || "never";
-			const sets = getCachedSets();
-
-			shadow.querySelector("#age").value = age;
-			shadow.querySelector("#ownedApps").value = sets.ownedApps.size;
-			shadow.querySelector("#ownedPackages").value = sets.ownedPackages.size;
-			shadow.querySelector("#ignoredApps").value = sets.ignoredApps.size;
-			shadow.querySelector("#ignoredPackages").value = sets.ignoredPackages.size;
-			shadow.querySelector("#wishlist").value = sets.wishlist.size;
-		}
-
-		shadow.querySelector("#refresh").addEventListener("click", function(ev) {
-			ev.preventDefault();
-			downloadAndUpdateProfileCache().finally(updateUI);
-		});
-
-		shadow.querySelector("#close").addEventListener("click", function(ev) {
-			ev.preventDefault();
-			root.remove();
-		});
-
-		updateUI()
-		return {
-			element: root,
-			update: updateUI,
+		const panel = {
+			root,
+			shadow,
+			$: (selector) => shadow.querySelector(selector),
+			update() {
+				for (const section of panel_sections) {
+					try {
+						section.update?.(panel);
+					} catch (error) {
+						debug_log.add("error", `panel section "${section.id}" update failed: ${error}`);
+					}
+				}
+			},
+			close() {
+				root.remove();
+			},
 		};
+
+		for (const section of panel_sections) {
+			try {
+				section.init?.(panel);
+			} catch (error) {
+				debug_log.add("error", `panel section "${section.id}" init failed: ${error}`);
+			}
+		}
+		panel.update();
+		return panel;
+	}
+
+	// Section: Steam profile data summary and the panel's links.
+	addPanelSection({
+		id: "steam",
+		html: `
+			<p>
+				Steam profile data <a href="javascript:;" id="refresh">last fetched <output id="age"></output> ago</a>.
+			</p>
+			<p>
+				Owned:
+				<output id="ownedApps"></output> apps,
+				<output id="ownedPackages"></output> packages.
+			</p>
+			<p>
+				Ignored:
+				<output id="ignoredApps"></output> apps,
+				<output id="ignoredPackages"></output> packages.
+			</p>
+			<p>
+				<a href="javascript:;" id="close" class="right">[close]</a>
+				<a href="javascript:;" id="retry" class="right" title="Forget saved title misses and look them up again">[retry misses]</a>
+				<a href="javascript:;" id="debug-toggle" class="right bug" title="Debug info">${bug_icon_svg}</a>
+				Wishlisted:
+				<output id="wishlist"></output> apps.
+			</p>
+		`,
+		css: `
+			.bug svg {
+				width: 12px;
+				height: 12px;
+				vertical-align: -2px;
+				fill: currentColor;
+			}
+		`,
+		init(panel) {
+			panel.$("#refresh").addEventListener("click", (ev) => {
+				ev.preventDefault();
+				downloadAndUpdateProfileCache().catch(() => {}).finally(() => panel.update());
+			});
+			panel.$("#retry").addEventListener("click", (ev) => {
+				ev.preventDefault();
+				const removed = clearTitleMisses();
+				debug_log.add("lookup", `cleared ${removed} saved misses, reloading page`);
+				location.reload();
+			});
+			panel.$("#close").addEventListener("click", (ev) => {
+				ev.preventDefault();
+				panel.close();
+			});
+		},
+		update(panel) {
+			const sets = getCachedSets();
+			panel.$("#age").value = getProfileCacheAge() || "never";
+			panel.$("#ownedApps").value = sets.ownedApps.size;
+			panel.$("#ownedPackages").value = sets.ownedPackages.size;
+			panel.$("#ignoredApps").value = sets.ignoredApps.size;
+			panel.$("#ignoredPackages").value = sets.ignoredPackages.size;
+			panel.$("#wishlist").value = sets.wishlist.size;
+		},
+	});
+
+	// Section: debug report, opened by the bug button. Hidden by default.
+	addPanelSection({
+		id: "debug",
+		html: `
+			<div id="debug" hidden>
+				<p class="debug-actions">
+					<a href="javascript:;" id="debug-copy">[copy]</a>
+					<a href="javascript:;" id="debug-refresh">[refresh]</a>
+					<span id="debug-copied"></span>
+				</p>
+				<pre id="debug-text"></pre>
+			</div>
+		`,
+		css: `
+			#debug {
+				margin-top: 0.4em;
+				padding-top: 0.4em;
+				border-top: 1px solid #556;
+			}
+			#debug-text {
+				margin: 0.4em 0 0 0;
+				max-height: 50vh;
+				max-width: min(60vw, 720px);
+				overflow: auto;
+				white-space: pre-wrap;
+				word-break: break-word;
+				font: 11px monospace;
+				user-select: text;
+			}
+		`,
+		init(panel) {
+			const view = panel.$("#debug");
+			const show = () => {
+				panel.$("#debug-text").textContent = buildDebugReport();
+			};
+			panel.$("#debug-toggle").addEventListener("click", (ev) => {
+				ev.preventDefault();
+				view.hidden = !view.hidden;
+				if (!view.hidden) show();
+			});
+			panel.$("#debug-refresh").addEventListener("click", (ev) => {
+				ev.preventDefault();
+				show();
+			});
+			panel.$("#debug-copy").addEventListener("click", (ev) => {
+				ev.preventDefault();
+				show();
+				const text = panel.$("#debug-text").textContent;
+				const done = (message) => {
+					panel.$("#debug-copied").textContent = message;
+					setTimeout(() => panel.$("#debug-copied").textContent = "", 3000);
+				};
+				navigator.clipboard?.writeText(text).then(() => done("copied"), () => {
+					// Clipboard blocked: select the text so Ctrl+C works.
+					const range = document.createRange();
+					range.selectNodeContents(panel.$("#debug-text"));
+					const selection = window.getSelection();
+					selection.removeAllRanges();
+					selection.addRange(range);
+					done("selected, press Ctrl+C");
+				}) ?? done("clipboard unavailable");
+			});
+		},
+		update(panel) {
+			if (!panel.$("#debug").hidden) panel.$("#debug-text").textContent = buildDebugReport();
+		},
+	});
+
+	// Plain-text report: [Section] headers and "Setting = value" lines.
+	function buildDebugReport() {
+		const lines = [];
+		const section = (name) => lines.push("", `[${name}]`);
+		const value = (name, val) => lines.push(`${name} = ${val}`);
+		const count = (selector) => document.querySelectorAll(selector).length;
+
+		const info = (typeof GM_info !== "undefined") ? GM_info : null;
+		lines.push("Bundle Helper Reborn debug report");
+		value("Generated", new Date().toISOString());
+
+		section("Script");
+		value("Version", info?.script?.version ?? "unknown");
+		value("Manager", info ? `${info.scriptHandler ?? "unknown"} ${info.version ?? ""}`.trim() : "unknown");
+		value("Page", location.origin + location.pathname);
+		value("Site handler", debug_state.site_handler || "none (this host has no handler)");
+		value("Browser", navigator.userAgent);
+
+		section("Steam data");
+		const sets = getCachedSets();
+		const fetched = GM_getValue(cachename_profile_time, 0);
+		value("Last fetched", fetched ? `${new Date(fetched * 1000).toISOString()} (${getProfileCacheAge()} ago)` : "never");
+		value("Fetch on this page", debug_state.steam_fetch);
+		value("Owned apps", sets.ownedApps.size);
+		value("Owned packages", sets.ownedPackages.size);
+		value("Wishlisted apps", sets.wishlist.size);
+		value("Ignored apps", sets.ignoredApps.size);
+		value("Ignored packages", sets.ignoredPackages.size);
+		if (!sets.ownedApps.size) value("Warning", "no owned apps saved; sign in at store.steampowered.com, then click 'last fetched'");
+
+		section("Title lookups");
+		const cache = loadTitleCache();
+		const saved = Object.values(cache);
+		value("Saved format version", title_cache_version);
+		value("Saved matches", saved.filter((e) => e.match).length);
+		value("Saved misses", saved.filter((e) => !e.match).length);
+		value("Log lines this page", debug_log.count("lookup"));
+
+		section("This page");
+		value("Marked owned", count(".bh_owned"));
+		value("Marked wishlisted", count(".bh_wished"));
+		value("Marked ignored", count(".bh_ignored"));
+		value("Steam buttons", count(".bh_steamlink"));
+		value("Processed elements", count(".bh_already_processed"));
+		value("Page watchers", active_mutation_observers.length);
+		if (debug_state.site_handler === "fanatical.com") value("Fanatical covers with Steam data", fanatical_cover_map.size);
+		value("Errors this page", debug_log.count("error"));
+
+		section("Log (newest last)");
+		for (const entry of debug_log.entries.slice(-80)) {
+			lines.push(`${entry.time.toLocaleTimeString()} ${entry.category}: ${entry.message}`);
+		}
+		return lines.join("\n");
 	}
 
 	function addBundleHelperUI(root) {
@@ -427,9 +641,10 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 			root = document.body;
 		}
 
-		const UI = createBundleHelperUI();
-		root.appendChild(UI.element);
-		updateProfileCacheIfExpired().finally(UI.update);
+		const panel = createPanel();
+		root.appendChild(panel.root);
+		updateProfileCacheIfExpired().catch(() => {}).finally(() => panel.update());
+		return panel;
 	}
 
 	//////////////////////////////////////////////////
@@ -667,6 +882,16 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 		return title_cache;
 	}
 
+	function clearTitleMisses() {
+		const cache = loadTitleCache();
+		let removed = 0;
+		for (const [key, entry] of Object.entries(cache)) {
+			if (!entry.match) { delete cache[key]; removed++; }
+		}
+		saveTitleCache();
+		return removed;
+	}
+
 	function saveTitleCache() {
 		GM_setValue(title_cache_name, {version: title_cache_version, entries: title_cache});
 	}
@@ -725,10 +950,12 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 	async function lookupTitle(title) {
 		let had_error = false;
 
+		const log = (...args) => debug_log.add("lookup", JSON.stringify(title) + " " + args.map((a) => typeof a === "string" ? a : JSON.stringify(a)).join(" "));
 		const candidates = await searchSteamApps(title);
-		if (candidates === null) return {result: null, cacheable: false};
+		if (candidates === null) { log("Steam search failed (network or HTTP error), will retry next visit"); return {result: null, cacheable: false}; }
+		log("search results:", candidates.map((c) => `${c.appid} ${c.title}`));
 		const appid = pickSteamMatch(title, candidates);
-		if (appid) return {result: {type: "app", id: appid}, cacheable: true};
+		if (appid) { log("matched game", appid); return {result: {type: "app", id: appid}, cacheable: true}; }
 
 		// Package fallback: compilations and editions sold as Steam packages.
 		// Search the part before ":" or " - " ("FEAR"), then check the packages
@@ -745,22 +972,28 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 		addGames(candidates);
 		if (!games.length && base && normalizeTitle(base) !== normalizeTitle(title)) {
 			const more = await searchSteamApps(base);
+			log("package fallback, searched", JSON.stringify(base), "->", more === null ? "ERROR" : more.map((c) => `${c.appid} ${c.title}`));
 			if (more === null) had_error = true;
 			else addGames(more);
 		}
 		// Steam's search can't find "FEAR" but finds "F.E.A.R.". For a single
 		// all-caps word (FEAR, STALKER, QUBE), also try it spelled with dots.
 		if (!games.length && /^[A-Z]{2,8}$/.test(base)) {
-			const dotted = await searchSteamApps(base.split("").join(".") + ".");
+			const dotted_term = base.split("").join(".") + ".";
+			const dotted = await searchSteamApps(dotted_term);
+			log("package fallback, searched", JSON.stringify(dotted_term), "->", dotted === null ? "ERROR" : dotted.map((c) => `${c.appid} ${c.title}`));
 			if (dotted === null) had_error = true;
 			else addGames(dotted);
 		}
+		log("games whose name starts the title:", games);
 		for (const game of games.slice(0, 2)) {
 			const packages = await getSteamPackages(game);
+			log("packages of", game, "->", packages === null ? "ERROR" : packages.map((p) => `${p.appid} ${p.title}`));
 			if (packages === null) { had_error = true; continue; }
 			const packageid = pickSteamMatch(title, packages);
-			if (packageid) return {result: {type: "sub", id: packageid}, cacheable: true};
+			if (packageid) { log("matched package", packageid); return {result: {type: "sub", id: packageid}, cacheable: true}; }
 		}
+		log(had_error ? "no match (an error occurred, not saved)" : "no match (saved as a miss for 1 day)");
 		return {result: null, cacheable: !had_error};
 	}
 
@@ -769,7 +1002,10 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 		const key = normalizeTitle(spellGreek(title)) || title.trim().toLowerCase();
 		if (!key) return Promise.resolve(null);
 		const cache = loadTitleCache();
-		if (cache[key]) return Promise.resolve(cache[key].match);
+		if (cache[key]) {
+			debug_log.add("lookup", JSON.stringify(title) + " saved result: " + (cache[key].match ? `${cache[key].match.type} ${cache[key].match.id}` : "miss"));
+			return Promise.resolve(cache[key].match);
+		}
 		if (pending_title_lookups.has(key)) return pending_title_lookups.get(key);
 
 		const lookup = lookupTitle(title).then(({result, cacheable}) => {
@@ -1260,7 +1496,15 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 		// Removing the www. prefix, if present.
 		hostname = hostname.replace(/^www\./, "");
 		// Calling the site-specific code, if found.
-		site_mapping[hostname]?.();
+		const handler = site_mapping[hostname];
+		debug_state.site_handler = handler ? hostname : "";
+		if (!handler) return;
+		debug_log.add("site", `running the ${hostname} handler`);
+		try {
+			handler();
+		} catch (error) {
+			debug_log.add("error", `${hostname} handler failed: ${error?.stack ?? error}`);
+		}
 	}
 
 	function main() {
