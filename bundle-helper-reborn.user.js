@@ -2,7 +2,7 @@
 // @name            Bundle Helper Reborn 3.0
 // @namespace       https://github.com/SentaiBrad/
 // @author          SentaiBrad
-// @version         3.0.18
+// @version         3.0.19
 // @description     Marks owned/ignored/wishlisted games on several sites, and also adds a button to open the steam page for each game.
 // @match           *://dailyindiegame.com/*
 // @match           *://old.reddit.com/*
@@ -942,6 +942,37 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 		return a;
 	}
 
+	// Turns an element into a card: adds the frame and label, which CSS shows
+	// only while the card (or the item around it) is marked. They go one layer
+	// above the card's image, so badges the site draws over its image stay on
+	// top. Safe to call more than once.
+	function makeCard(card) {
+		if (getComputedStyle(card).position === "static") {
+			card.style.position = "relative";
+		}
+		card.classList.add("bh_card");
+		if (card.querySelector(":scope > bh-label")) return;
+		const layer = String(imageLayerZIndex(card) + 1);
+		const label = document.createElement("bh-label");
+		const frame = document.createElement("bh-frame");
+		label.style.zIndex = layer;
+		frame.style.zIndex = layer;
+		card.prepend(label);
+		card.append(frame);
+	}
+
+	// Highest z-index set between the card and any of its images; 0 if none.
+	function imageLayerZIndex(card) {
+		let highest = 0;
+		for (const img of card.querySelectorAll("img")) {
+			for (let el = img; el && el !== card; el = el.parentElement) {
+				const z = parseInt(getComputedStyle(el).zIndex, 10);
+				if (!Number.isNaN(z)) highest = Math.max(highest, z);
+			}
+		}
+		return highest;
+	}
+
 	function markElements({
 		rootSelector = "body",
 		itemSelector = "a[href*='store.steampowered.com/']",
@@ -1351,11 +1382,6 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 		"fanatical.com": function() {
 			document.body.classList.add("bh_basic_style");
 			GM_addStyle(`
-				/* Fanatical puts its own badges (NEW TO BUNDLE, IN LIBRARY) top-left. */
-				.bh_card {
-					--bh-band-align: right;
-					--bh-band-padding-x: 12px;
-				}
 				.bh_steamlink {
 					position: absolute;
 					bottom: 0;
@@ -1437,8 +1463,7 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 					},
 					closestSelector: ".bundle-game-card, .bundle-product-card, .card, .HitCard, .header-content-container, .NewPickAndMixCard, .PickAndMixCard, .ProductHeader.container",
 					addSteamLinkFunc: (item, closest, link) => {
-						closest.style.position = "relative";
-						closest.classList.add("bh_card");
+						makeCard(closest);
 						closest.insertAdjacentElement("beforeend", link);
 					},
 				});
@@ -1667,7 +1692,7 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 						const cssClass = match.type === "sub" ? getClassForSubId(match.id) : getClassForAppId(match.id);
 						if (cssClass) { tile.classList.add(cssClass); noteMarked(); }
 						const img_container = tile.querySelector(".img-container");
-						img_container?.classList.add("bh_card");
+						if (img_container) makeCard(img_container);
 						if (img_container && !img_container.querySelector(".bh_steamlink")) {
 							img_container.appendChild(createSteamLink(match.type, match.id));
 						}
@@ -1822,7 +1847,8 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 					if (!name) continue;
 					const card = findEnebaCard(link);
 					if (!card || card.classList.contains("bh_already_processed")) continue;
-					card.classList.add("bh_already_processed", "bh_eneba_card", "bh_card");
+					card.classList.add("bh_already_processed", "bh_eneba_card");
+					makeCard(card);
 					resolveTitle(name).then((match) => {
 						if (match) markEneba(card, match, (a) => card.appendChild(a));
 					});
@@ -1897,72 +1923,52 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 				outline: var(--bh-outline-width) var(--bh-outline-style) var(--bh-color) !important;
 				outline-offset: calc(-1 * var(--bh-outline-width));
 			}
-			/* Card-style items get their frame as an overlay drawn on top of the
-			   card (an outline can be hidden under the card's image), and no outline. */
+			/* Cards (tiles with an image) get a frame and a label band made of the
+			   script's own elements (bh-frame, bh-label), added by makeCard(). Sites
+			   don't style tags they don't know, so their hover effects can't distort
+			   the marking. Both sit one layer above the card's image, so the site's
+			   own badges stay on top; isolation keeps every layer inside the card. */
+			.bh_card {
+				isolation: isolate;
+			}
 			.bh_basic_style .bh_card.bh_owned,  .bh_basic_style .bh_owned .bh_card,
 			.bh_basic_style .bh_card.bh_wished, .bh_basic_style .bh_wished .bh_card,
 			.bh_basic_style .bh_card.bh_ignored, .bh_basic_style .bh_ignored .bh_card {
 				outline: none !important;
 			}
-			.bh_owned.bh_card::before,   .bh_owned .bh_card::before,
-			.bh_wished.bh_card::before,  .bh_wished .bh_card::before,
-			.bh_ignored.bh_card::before, .bh_ignored .bh_card::before {
-				content: "";
+			bh-frame, bh-label {
+				all: initial;
+				display: none;
+			}
+			.bh_owned bh-frame, .bh_wished bh-frame, .bh_ignored bh-frame,
+			.bh_owned bh-label, .bh_wished bh-label, .bh_ignored bh-label {
+				display: block;
+			}
+			bh-frame {
 				position: absolute;
 				inset: 0;
-				z-index: 6;
 				pointer-events: none;
+				box-sizing: border-box;
 				border: var(--bh-outline-width) var(--bh-outline-style) var(--bh-color);
 				border-radius: inherit;
 			}
-			/* Sites style ::before and ::after on their own cards (Humble fills the
-			   image on hover), so the frame and label pin every property that
-			   decides their size, position and color. */
-			.bh_owned.bh_card::before,   .bh_owned .bh_card::before,
-			.bh_wished.bh_card::before,  .bh_wished .bh_card::before,
-			.bh_ignored.bh_card::before, .bh_ignored .bh_card::before {
-				inset: 0 !important;
-				width: auto !important;
-				height: auto !important;
-				margin: 0 !important;
-				background: none !important;
-				opacity: 1 !important;
-				transform: none !important;
-				display: block !important;
-			}
-			.bh_owned.bh_card::after,   .bh_owned .bh_card::after,
-			.bh_wished.bh_card::after,  .bh_wished .bh_card::after,
-			.bh_ignored.bh_card::after, .bh_ignored .bh_card::after {
-				top: 0 !important;
-				bottom: auto !important;
-				left: 0 !important;
-				width: auto !important;
-				height: auto !important;
-				margin: 0 !important;
-				background: var(--bh-color) !important;
-				opacity: 1 !important;
-				transform: none !important;
-				display: block !important;
-			}
-			/* Label on card-style items: a full-width band across the top of the
-			   card (the element with .bh_card must be positioned). */
-			.bh_owned.bh_card::after,   .bh_owned .bh_card::after,
-			.bh_wished.bh_card::after,  .bh_wished .bh_card::after,
-			.bh_ignored.bh_card::after, .bh_ignored .bh_card::after {
-				content: var(--bh-label);
+			bh-label {
 				position: absolute;
 				top: 0;
 				left: 0;
-				right: var(--bh-band-right, 0);   /* sites can keep a corner free */
-				z-index: 6;
+				right: var(--bh-band-right, 0);   /* sites can keep room for their own buttons */
 				pointer-events: none;
-				padding: 6px var(--bh-band-padding-x, 0);
-				text-align: var(--bh-band-align, center);
+				box-sizing: border-box;
+				padding: 6px 12px;
+				text-align: right;
 				font: 800 12px/1 sans-serif;
 				letter-spacing: 0.12em;
 				background: var(--bh-color);
 				color: var(--bh-label-text-color);
 				box-shadow: 0 2px 6px rgba(0, 0, 0, 0.45);
+			}
+			bh-label::before {
+				content: var(--bh-label);
 			}
 
 			.bh_steamlink svg {

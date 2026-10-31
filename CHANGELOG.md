@@ -1,5 +1,9 @@
 # Changelog
 
+## 3.0.19
+
+- Marked cards on Humble Bundle, Fanatical and Eneba look the same and can't be distorted by the site's own styles (like Humble's hover). The site's own badges stay on top of the label, and the marking stays inside the card instead of drawing over floating bars and menus.
+
 ## 3.0.18
 
 - Humble Bundle: hovering over a marked game no longer fills its image with the marking color.
