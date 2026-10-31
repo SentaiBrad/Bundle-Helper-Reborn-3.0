@@ -1,14 +1,28 @@
 # Bundle Helper Reborn 3.0
 
-A userscript that marks the games you already own, have wishlisted, or have ignored on Steam while you browse bundle and game store sites. It also adds a Steam button to each game it recognizes.
+A userscript that marks the games you already own, have wishlisted, or have ignored on Steam while you browse bundle and game store sites.
 
-If you buy games outside of Steam, it shows at a glance what you already have, without looking each game up manually.
+If you buy games outside of Steam, it shows at a glance what you already have, without looking each game up by hand.
 
-- **Green outline, OWNED label:** owned
-- **Blue outline, WISHLIST label:** wishlisted
-- **Gray dashed outline, IGNORED label:** ignored
+## What it shows
 
-Labels appear on card-style items (Eneba, Humble Bundle, Fanatical); other sites get the outline.
+**Games**
+- **OWNED:** green frame and label
+- **WISHLIST:** blue frame and label
+- **IGNORED:** gray dashed frame and label
+
+On card-style sites (Humble Bundle, Fanatical, Eneba) the label is a band across the top of the card. The site's own badges, such as Fanatical's IN LIBRARY, stay on top of it. Other sites get the colored outline.
+
+**Packs** (a store's 2-in-1s and collections, sold as one product but made of several Steam games):
+- **OWNED 7/7:** green, you own all of it
+- **OWNED 3/7:** purple, you own some of it (plus "· WISH 2" when some of the rest are wishlisted)
+- **WISHLIST 2/7:** blue dashed, you own none but some are wishlisted
+
+**Bundle cards** on store listings (Fanatical): a small strip along the bottom of the cover counting the Steam games inside, for example **OWN 3 · WISH 2 · NEW 13**.
+
+**Steam button:** every recognized game gets a small Steam button. Clicking it opens the game's Steam page in a background tab. On a pack, it opens a list of the games inside, each with its state; clicking one opens it in a background tab.
+
+The meaning never relies on color alone: every state has a text label, ignored items are dashed, and packs and bundles show counts.
 
 ## Install
 
@@ -23,33 +37,34 @@ Updates are picked up automatically from this repository.
 
 ## Supported sites
 
-**Reads Steam IDs from the page:**
-- AStats
-- DailyIndieGame
-- Fanatical (via its product data)
-- IndieGala
-- old.reddit.com
-- SGTools
-- SteamDB
-- SteamGifts
-- SteamGround
+| Site | How games are recognized | Status |
+|---|---|---|
+| Humble Bundle | Game title, looked up on Steam | Working |
+| Fanatical | Fanatical's own product data, which includes Steam IDs; title lookup for products without one | Working. Bundle-card summaries are new and still being checked. |
+| Eneba | Game title, looked up on Steam (Steam products only) | Working on store listings; product pages not yet checked |
+| itch.io | Game title, looked up on Steam | Not working: titles are read as empty. `itch.io` only, not creator pages (`name.itch.io`). |
+| old.reddit.com | Steam links in posts | Not working: the script never runs there |
+| AStats, DailyIndieGame, IndieGala, SGTools, SteamGifts, SteamGround | Steam links, images or IDs on the page | Carried over from 2.x, not yet checked in 3.0 |
+| SteamDB, Tiltify, HRK Game, GameSeal, G2A | Steam links on the page | Not working; to be checked and rewritten |
 
-**Matches by game title when the page has no Steam ID:**
-- Eneba (Steam products only)
-- Humble Bundle
-- itch.io (including `*.itch.io` pages)
+## The corner panel
 
-**Works only when the page links to Steam or shows Steam images:**
-- G2A
-- GameSeal
-- HRK Game
-- Tiltify
+A small panel in the bottom-left corner shows when your Steam data was last fetched, and how many apps you own, have wishlisted and ignored.
 
-Title matching only accepts an exact (case-insensitive) match from Steam's store search. Anything else is left unmarked rather than guessed.
+- **last fetched:** click to fetch your Steam data again.
+- **[retry misses]:** forgets titles that weren't found and looks them up again.
+- **Steam button:** optional Steam Web API key. Nothing uses it yet.
+- **Bug button:** a debug report (what the script did on this page, its saved data and its log), with **[copy]** for bug reports.
+- **[close]:** hides the panel until the page is reloaded.
 
 ## Privacy
 
-The script reads your owned, wishlisted and ignored lists from `store.steampowered.com` while you're signed in, and caches them in your userscript manager for up to 24 hours. Title lookups go to Steam's store search. Nothing is sent anywhere else, and no API key is needed.
+Everything stays in your browser, in your userscript manager's storage. Nothing is sent to anyone else.
+
+- **Steam library:** your owned, wishlisted and ignored lists are read from `store.steampowered.com` while you're signed in, and saved for up to 24 hours.
+- **Title lookups:** game titles are searched on Steam's store search, and Steam's public app details are read for packages. Results are saved: found titles for 30 days, not-found titles for 1 day.
+- **Fanatical:** the script reads the product data Fanatical's own pages load, and requests a product's or bundle's data from Fanatical when it needs the games inside. Results are saved for 30 days (products) or 1 day (bundles).
+- **No API key is needed.** If you enter an optional Steam Web API key, it's stored only in your userscript manager and never logged or shown in the debug report.
 
 ## Contributing
 

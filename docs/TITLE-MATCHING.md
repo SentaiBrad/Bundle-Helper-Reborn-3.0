@@ -1,6 +1,6 @@
 # Hard-to-match game titles
 
-Stores often name the same game differently from Steam. This lists the patterns that break title matching (used on Humble Bundle and itch.io), with real examples, and whether 3.0.3 handles each one.
+Stores often name the same game differently from Steam. This lists the patterns that break title matching, with real examples, and how the script handles each one. Title matching is used where a page has no Steam ID: Humble Bundle, Eneba, itch.io, and Fanatical products that come without one.
 
 **Verified** means the Steam title was read from the Steam store page on 2026-10-29. Where the store page tool may have dropped special characters, that's noted.
 
@@ -21,7 +21,9 @@ Stores often name the same game differently from Steam. This lists the patterns 
 - **Brütal Legend** is often written with an umlaut. Steam shows **Brutal Legend** (app 225260). Same caveat.
 - 3.0.3 strips accents, so both spellings match.
 
-## Not handled yet
+## Handled in 3.0.4 (fallback attempts)
+
+These four were researched before 3.0.4 and handled in it. The notes are the original research; "Fix idea" is what was built.
 
 ### Greek letters used as words
 - Steam **METAL GEAR SOLID Δ: SNAKE EATER** (app 2417610). Verified. Konami's own site uses Δ, news sites write "Metal Gear Solid Delta" ([Gematsu](https://www.gematsu.com/2025/09/metal-gear-solid-delta-snake-eater-shipments-and-digital-sales-top-one-million)), and store URLs turn Δ into "d" ([Nuuvem](https://www.nuuvem.com/us-en/item/metal-gear-solid-d-snake-eater)).
@@ -45,8 +47,10 @@ Stores often name the same game differently from Steam. This lists the patterns 
 - The canrun matcher keeps edition words and only uses them to score candidates ("edition, remastered, remake, definitive, ultimate, goty, complete, deluxe, special, anniversary, enhanced").
 - Fix idea: as a last resort, strip a known edition suffix from the store title and try again. Only accept the result if Steam's title is exactly the base name or the same edition, so "Delta" can never become "Delta 2".
 
+## Not handled
+
 ### Renamed Steam listings
-- Steam app 1659040 is now **HITMAN World of Assassination** and app 2280 is **DOOM + DOOM II** (both verified). Store pages that use older or different names won't match by title.
+- Steam app 1659040 is now **HITMAN World of Assassination** and app 2280 is **DOOM + DOOM II** (both verified). Store pages that use older or different names won't match by title. (DOOM + DOOM II itself is found since 3.0.24, see below.)
 - Fix idea: none safe for title matching. Prefer real Steam IDs from the page whenever a site provides them.
 
 ### Same title, different games
@@ -59,13 +63,30 @@ Stores often name the same game differently from Steam. This lists the patterns 
 - Steam's game search returns nothing for "FEAR: Ultimate Shooter Edition", so no title rule can match it.
 - 3.0.5 searches the part before ":" or " - ", reads the package list of up to 2 games whose name starts the title, and matches the package name with the same rules as game titles.
 
+## "+" in names (3.0.24)
+
+- Steam's search returns nothing when the search text contains "+": "DOOM + DOOM II" finds nothing, "DOOM DOOM II" finds app 2280 first (checked 2026-10-30).
+- The script drops "+" from the search text only. Matching still compares against Steam's real name.
+
+## Packs: several games sold as one product (3.0.22)
+
+- Stores sell their own 2-in-1s and collections that aren't a single Steam product. They're marked by their contents: owned when you own all of them, partly owned (purple, with a count) when you own some.
+- Contents come from the store's own data when it lists them (Fanatical does, with Steam IDs).
+- Otherwise, a name joining games with " + " is split, and each part is looked up on its own. This only happens after the whole name found nothing, and each part still needs an exact match.
+
+## Name collisions
+
+- A plain "DOOM" matches **DOOM** (2016, app 379720) exactly, not the 1993 game, which is now part of app 2280. Splitting a pack name into parts can hit this, which is why the whole name is always tried first.
+
 ## Order of attempts
 
-1. Real Steam ID on the page (link, image URL, data attribute). Always wins.
+1. A real Steam ID on the page (link, image URL, data attribute) or in the site's own data. Always wins.
 2. Normalized exact match (3.0.3).
 3. Same, with Greek letters spelled out.
 4. Same, with any `[...]` part removed.
 5. Same, with Roman numerals converted (whole words only, not the first word).
 6. Same, with a known edition suffix removed, under the strict rule above.
+7. Steam package: search the part before ":" or " - " (and the dotted spelling for an all-caps acronym), then match a package name.
+8. For a name with " + ": each part on its own, as a pack.
 
-Each step only runs if the earlier ones found nothing. Each should ship as its own version and be tested on live pages before the next.
+Each step only runs if the earlier ones found nothing. Results are saved: matches for 30 days, misses for 1 day.

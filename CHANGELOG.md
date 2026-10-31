@@ -148,16 +148,22 @@
 
 ## 3.0.1
 
+**Broken release:** Humble Bundle tiles were still not colored. Replaced by 3.0.2.
+
 - Humble Bundle: restored 2.0's tile coloring. Uses Humble's own tile and image elements again, and the background override now applies.
 - Humble Bundle: logs each tile's title, Steam ID and result to the browser console, to make mismatches easier to spot.
 
 ## 3.0.0
+
+**Broken release:** built on the 2.10.0 merge, which stopped Humble Bundle tiles being colored. Replaced by 3.0.2.
 
 - Renamed to **Bundle Helper Reborn 3.0** and moved from a GitHub Gist to a full repository, so changes can be contributed back with pull requests.
 - Updates now come from this repository. Installs of the 2.0 Extended Gist version are separate scripts. The final Gist version shows a notice pointing here.
 - Includes everything in 2.10.0.
 
 ## 2.10.0
+
+**Reverted.** Published briefly on the Gist on 2026-10-29, then replaced there by 2.10.1 (the 2.9.6 code plus a notice pointing to this repository), and reverted here in 3.0.2. None of the changes below are in the script today; the ones still wanted are being added back one at a time.
 
 Merged improvements from [Bundle Dude](https://gist.github.com/DickHorner/cc55aa516c389b11b93661a49f9e658a) v2.9.13 by J Luetkens (DickHorner), a GPL-3.0 fork of 2.9.6.
 

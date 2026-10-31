@@ -55,12 +55,12 @@ Sources:
   - handlers: `onload`, `onerror`, `onabort`, `ontimeout`, `onprogress`, `onreadystatechange`
   - response fields: `status`, `statusText`, `readyState`, `responseHeaders`, `response`, `responseText`, `finalUrl`
   - the returned object's `abort()`
+- `GM_openInTab(url, { active: false })`: opens Steam pages in a background tab. Always pass `active` explicitly; the defaults differ (Tampermonkey `false`, Violentmonkey `true`).
 - `unsafeWindow`: the page's `window` in both, as long as the script is injected into the page (see `@inject-into` and `@sandbox` above).
 
 ### Available in both if needed
 - `GM_deleteValue`, `GM_listValues`, `GM_addValueChangeListener`, `GM_removeValueChangeListener`
 - `GM_registerMenuCommand(name, callback)` and `GM_unregisterMenuCommand(id)`, using only the first two arguments
-- `GM_openInTab(url, { active })`: always pass `active` explicitly, because the defaults differ (Tampermonkey `false`, Violentmonkey `true`).
 - `GM_setClipboard`, `GM_notification({ text, title, onclick })`
 - `GM_info`: exists in both, but Violentmonkey's saved pages don't list its fields. Check a field in both managers before relying on it.
 - `GM_getResourceText` / `GM_getResourceURL` with `@resource`
@@ -77,12 +77,10 @@ Sources:
 - **`responseText` with `responseType: "json"`.** Violentmonkey only provides `responseText` "when available", so code that asks for JSON should read `response.response` and not count on `responseText`.
 - **`@connect` prompts.** If a new site handler ever needs `GM_xmlhttpRequest` to a host other than `store.steampowered.com`, add its own `@connect` line, or Tampermonkey users get a permission prompt.
 
-## Audit: 3.0.0
+## Known gaps
 
-- **Header keys:** all supported by both or harmlessly ignored. No changes needed.
-- **APIs:** `GM_addStyle`, `GM_getValue`, `GM_setValue`, `GM_xmlhttpRequest` (`responseType: "json"`, `onload`, `onerror`, `onabort`) and `unsafeWindow`. All are on the allowed list.
-- **To fix later (not changed yet):**
-  - The DLC lookup falls back to `JSON.parse(response.responseText)` when `response.response` isn't an object. In Violentmonkey `responseText` can be missing. It's caught and treated as a failed lookup, so it's harmless, but the fallback should go.
-  - There's no `@inject-into page`, so in Violentmonkey the Fanatical hook can silently fail on pages whose CSP blocks page scripts.
-  - There's no single-page navigation handling (see "Things to watch").
-  - There's no `@noframes`.
+- `JSON.parse(response.responseText)` is used as a fallback when `response.response` isn't an object (Tampermonkey on Firefox delivers JSON as text). In Violentmonkey `responseText` can be missing; that case is caught and treated as a failed lookup.
+- No `@run-at`, so each manager uses its own default (see "Safe to add later"). The Fanatical data hook can miss Fanatical's first requests.
+- No `@inject-into page`, so in Violentmonkey the Fanatical hook can silently fail on pages whose CSP blocks page scripts.
+- No handling of single-page navigation (see "Things to watch").
+- No `@noframes`.
