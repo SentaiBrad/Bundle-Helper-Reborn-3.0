@@ -2,7 +2,7 @@
 // @name            Bundle Helper Reborn 3.0
 // @namespace       https://github.com/SentaiBrad/
 // @author          SentaiBrad
-// @version         3.0.19
+// @version         3.0.20
 // @description     Marks owned/ignored/wishlisted games on several sites, and also adds a button to open the steam page for each game.
 // @match           *://dailyindiegame.com/*
 // @match           *://old.reddit.com/*
@@ -943,34 +943,15 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 	}
 
 	// Turns an element into a card: adds the frame and label, which CSS shows
-	// only while the card (or the item around it) is marked. They go one layer
-	// above the card's image, so badges the site draws over its image stay on
-	// top. Safe to call more than once.
+	// only while the card (or the item around it) is marked. Safe to call more
+	// than once.
 	function makeCard(card) {
 		if (getComputedStyle(card).position === "static") {
 			card.style.position = "relative";
 		}
 		card.classList.add("bh_card");
 		if (card.querySelector(":scope > bh-label")) return;
-		const layer = String(imageLayerZIndex(card) + 1);
-		const label = document.createElement("bh-label");
-		const frame = document.createElement("bh-frame");
-		label.style.zIndex = layer;
-		frame.style.zIndex = layer;
-		card.prepend(label);
-		card.append(frame);
-	}
-
-	// Highest z-index set between the card and any of its images; 0 if none.
-	function imageLayerZIndex(card) {
-		let highest = 0;
-		for (const img of card.querySelectorAll("img")) {
-			for (let el = img; el && el !== card; el = el.parentElement) {
-				const z = parseInt(getComputedStyle(el).zIndex, 10);
-				if (!Number.isNaN(z)) highest = Math.max(highest, z);
-			}
-		}
-		return highest;
+		card.append(document.createElement("bh-label"), document.createElement("bh-frame"));
 	}
 
 	function markElements({
@@ -1926,8 +1907,10 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 			/* Cards (tiles with an image) get a frame and a label band made of the
 			   script's own elements (bh-frame, bh-label), added by makeCard(). Sites
 			   don't style tags they don't know, so their hover effects can't distort
-			   the marking. Both sit one layer above the card's image, so the site's
-			   own badges stay on top; isolation keeps every layer inside the card. */
+			   the marking. Layer 6 keeps both above a card's image and hover
+			   overlays (Fanatical's is 5) while badges above that stay on top (a site
+			   can change it with --bh-layer); isolation keeps every layer inside the
+			   card, so floating bars and menus stay above the marking. */
 			.bh_card {
 				isolation: isolate;
 			}
@@ -1943,6 +1926,9 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 			.bh_owned bh-frame, .bh_wished bh-frame, .bh_ignored bh-frame,
 			.bh_owned bh-label, .bh_wished bh-label, .bh_ignored bh-label {
 				display: block;
+			}
+			bh-frame, bh-label {
+				z-index: var(--bh-layer, 6);
 			}
 			bh-frame {
 				position: absolute;
