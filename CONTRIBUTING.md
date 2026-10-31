@@ -17,6 +17,18 @@ If you'd rather not write code, open an issue with the page URL and what you exp
 
 ## How the script is organized
 
+The file reads top to bottom in this order, so the part for one site, or one shared job, is easy to find:
+
+1. Header
+2. Settings
+3. Small utilities, the debug log, and the record of what happened on the page
+4. Steam data: your library, Steam requests, the optional API key
+5. Title matching and saved lookups
+6. Marking: classes, Steam buttons, the pack menu, cards and packs
+7. Sites: data some sites need (Fanatical's product data), then the site handlers, alphabetical by host, each starting with a note on the pages it covers
+8. The corner panel and the debug report
+9. Start-up
+
 Site handlers (in `site_mapping`) only describe their site: which element is a game, where its Steam ID or title comes from, and where the Steam button goes. Everything else is shared, so every site looks and behaves the same:
 
 - **`makeCard(element)`** turns a card-style item into a marked card: the frame and label band are the script's own elements (`bh-frame`, `bh-label`), so the site's styles can't distort them.
@@ -68,7 +80,7 @@ A site-specific fix may break a style rule when the site forces it. Add one comm
 
 ## Guidelines
 
-- **Panel features go in their own section.** The corner panel is built from sections registered with `addPanelSection({id, html, css, init(panel), update(panel)})`. Add a section rather than editing existing ones.
+- **Settings are one list.** Add a setting to `setting_definitions`; the settings view, the checks on saved values, and the debug report all read from it.
 - **Steam Web API key:** optional and unused today. If a feature uses it, it must also work without a key, send it only to `api.steampowered.com` (add that `@connect`), and never log it. Read it with `steam_api.getKey()`.
 - **Log through `debug_log.add(category, message)`**, not bare `console.log`, so it shows up in the bug button's report.
 - **Work in both Tampermonkey and Violentmonkey.** Only use the metadata keys and `GM_*` functions listed in [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md), and test in both when you can.

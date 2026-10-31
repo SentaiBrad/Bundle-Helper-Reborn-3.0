@@ -1,5 +1,10 @@
 # Changelog
 
+## 3.0.35
+
+- Internal: the code is reordered so it reads top to bottom (settings, utilities, Steam data, title matching, marking, sites, panel, start-up), with the site handlers alphabetical and each starting with a note on the pages it covers. No change in behavior.
+- Docs: CONTRIBUTING describes the new order and how settings are added; README lists the IGNORED pack state and NOT FOUND, and its privacy section covers the package checks and Fanatical requests added in 3.0.33 and 3.0.34.
+
 ## 3.0.34
 
 - Fanatical packs: a game that Fanatical lists under the wrong kind of Steam ID (Resident Evil 5 in the RE4 & RE5 Gold Edition Double Pack) is checked on Steam and marked by the right one. The same goes for single products.

@@ -17,6 +17,9 @@ On card-style sites (Humble Bundle, Fanatical, Eneba) the label is a band across
 - **OWNED 7/7:** green, you own all of it
 - **OWNED 3/7:** purple, you own some of it (plus "· WISH 2" when some of the rest are wishlisted)
 - **WISHLIST 2/7:** blue dashed, you own none but some are wishlisted
+- **IGNORED 7/7:** gray dashed, you've ignored all of it
+
+A game in a pack that can't be found on Steam counts as not owned, and shows as NOT FOUND in the pack's list.
 
 **Steam button:** every recognized game gets a small Steam button. Clicking it opens the game's Steam page in a background tab. On a pack, it opens a list of the games inside, each with its state; clicking one opens it in a background tab.
 
@@ -60,8 +63,8 @@ A small panel in the bottom corner shows when your Steam data was last fetched, 
 Everything stays in your browser, in your userscript manager's storage. Nothing is sent to anyone else.
 
 - **Steam library:** your owned, wishlisted and ignored lists are read from `store.steampowered.com` while you're signed in, and saved for up to 24 hours.
-- **Title lookups:** game titles are searched on Steam's store search, and Steam's public app details are read for packages. Results are saved: found titles for 30 days, not-found titles for 1 day.
-- **Fanatical:** the script reads the product data Fanatical's own pages load, and requests a product's data from Fanatical when it needs the games inside. Results are saved for 30 days.
+- **Title lookups:** game titles are searched on Steam's store search, and Steam's public app and package details are read to find packages and to check IDs a store gives. Results are saved: found titles for 30 days, not-found titles for 1 day.
+- **Fanatical:** the script reads the product data Fanatical's own pages load. It requests data from Fanatical itself only when it needs the games inside a product, or when the page loaded its data before the script started. Results are saved for 30 days (a pack with a game that wasn't found, for 1 day).
 - **No API key is needed.** If you enter an optional Steam Web API key, it's stored only in your userscript manager and never logged or shown in the debug report.
 
 ## Contributing
