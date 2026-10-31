@@ -1,5 +1,9 @@
 # Changelog
 
+## 3.0.27
+
+- Debug report: errors while scanning a page are logged, and Fanatical bundle cards are counted (found, checked, shown).
+
 ## 3.0.26
 
 - Fanatical: bundle cards on listing pages show a summary of the Steam games inside: how many you own, have wishlisted, and don't have yet. Each bundle is checked once a day, only when its card comes into view.

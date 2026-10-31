@@ -2,7 +2,7 @@
 // @name            Bundle Helper Reborn 3.0
 // @namespace       https://github.com/SentaiBrad/
 // @author          SentaiBrad
-// @version         3.0.26
+// @version         3.0.27
 // @description     Marks owned/ignored/wishlisted games on several sites, and also adds a button to open the steam page for each game.
 // @match           *://dailyindiegame.com/*
 // @match           *://old.reddit.com/*
@@ -186,7 +186,13 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 	// Returns a new MutationObserver that observes a specific node.
 	// The observer will be immediately active.
 	function debouncedMutationObserver(rootNode, callback, timeout = 500) {
-		const func = throttle(callback, timeout);
+		const func = throttle(() => {
+			try {
+				callback();
+			} catch (error) {
+				debug_log.add("error", `page scan failed: ${error?.stack ?? error}`);
+			}
+		}, timeout);
 		func();
 		const observer = new MutationObserver(func);
 		observer.observe(rootNode, {
@@ -862,6 +868,9 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 			if (debug_state.site_handler === "fanatical.com") {
 				value("Fanatical fetch hook", debug_state.fetch_hook);
 				value("Fanatical covers with Steam data", `${fanatical_cover_map.size}${fanatical_cover_map.size ? "" : " (0 after the page loaded means the hook isn't seeing Fanatical's data)"}`);
+				const bundles = fanatical_bundle_stats;
+				value("Fanatical bundle cards", `${bundles.found} found, ${bundles.came_into_view} came into view, ${bundles.shown} with a summary, ${bundles.empty} with no Steam games listed, ${bundles.failed} failed`);
+				value("Fanatical bundle cards on the page now", `${document.querySelectorAll(".HitCard a.HitCard__main__cover[href]").length} (${document.querySelectorAll(".HitCard a.HitCard__main__cover.bh_already_processed").length} seen by the script)`);
 			}
 			value("Errors this page", debug_log.count("error"));
 		}
@@ -1308,6 +1317,7 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 	// The Steam games in a Fanatical bundle (/bundle/<slug>) or pick-and-mix
 	// (/pick-and-mix/<slug>), saved for a day because bundles change.
 	const fanatical_bundle_queue = requestQueue(3);
+	const fanatical_bundle_stats = {found: 0, came_into_view: 0, shown: 0, empty: 0, failed: 0};
 
 	function lookupFanaticalBundle(kind, slug) {
 		const url = kind === "pick-and-mix"
@@ -1808,10 +1818,20 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 					const [, kind, slug] = cover.pathname.match(/\/(bundle|pick-and-mix)\/([^/]+)/) ?? [];
 					if (!slug || cover.classList.contains("bh_already_processed")) continue;
 					cover.classList.add("bh_already_processed");
+					fanatical_bundle_stats.found++;
 					whenVisible(cover, () => {
+						fanatical_bundle_stats.came_into_view++;
 						lookupFanaticalBundle(kind, slug).then((pack) => {
-							if (pack) showBundleSummary(cover, pack.members);
-						}).catch(logFailure(`Fanatical bundle card ${slug}`));
+							if (pack?.members.length) {
+								showBundleSummary(cover, pack.members);
+								fanatical_bundle_stats.shown++;
+							} else {
+								fanatical_bundle_stats.empty++;
+							}
+						}).catch((error) => {
+							fanatical_bundle_stats.failed++;
+							logFailure(`Fanatical bundle card ${slug}`)(error);
+						});
 					});
 				}
 			}
