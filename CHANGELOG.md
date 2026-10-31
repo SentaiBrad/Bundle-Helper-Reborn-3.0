@@ -1,5 +1,9 @@
 # Changelog
 
+## 3.0.18
+
+- Humble Bundle: hovering over a marked game no longer fills its image with the marking color.
+
 ## 3.0.17
 
 - Internal cleanup. No change in behavior.

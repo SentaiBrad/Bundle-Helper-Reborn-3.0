@@ -2,7 +2,7 @@
 // @name            Bundle Helper Reborn 3.0
 // @namespace       https://github.com/SentaiBrad/
 // @author          SentaiBrad
-// @version         3.0.17
+// @version         3.0.18
 // @description     Marks owned/ignored/wishlisted games on several sites, and also adds a button to open the steam page for each game.
 // @match           *://dailyindiegame.com/*
 // @match           *://old.reddit.com/*
@@ -1914,6 +1914,35 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 				pointer-events: none;
 				border: var(--bh-outline-width) var(--bh-outline-style) var(--bh-color);
 				border-radius: inherit;
+			}
+			/* Sites style ::before and ::after on their own cards (Humble fills the
+			   image on hover), so the frame and label pin every property that
+			   decides their size, position and color. */
+			.bh_owned.bh_card::before,   .bh_owned .bh_card::before,
+			.bh_wished.bh_card::before,  .bh_wished .bh_card::before,
+			.bh_ignored.bh_card::before, .bh_ignored .bh_card::before {
+				inset: 0 !important;
+				width: auto !important;
+				height: auto !important;
+				margin: 0 !important;
+				background: none !important;
+				opacity: 1 !important;
+				transform: none !important;
+				display: block !important;
+			}
+			.bh_owned.bh_card::after,   .bh_owned .bh_card::after,
+			.bh_wished.bh_card::after,  .bh_wished .bh_card::after,
+			.bh_ignored.bh_card::after, .bh_ignored .bh_card::after {
+				top: 0 !important;
+				bottom: auto !important;
+				left: 0 !important;
+				width: auto !important;
+				height: auto !important;
+				margin: 0 !important;
+				background: var(--bh-color) !important;
+				opacity: 1 !important;
+				transform: none !important;
+				display: block !important;
 			}
 			/* Label on card-style items: a full-width band across the top of the
 			   card (the element with .bh_card must be positioned). */
