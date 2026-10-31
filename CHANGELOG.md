@@ -1,5 +1,11 @@
 # Changelog
 
+## 3.0.30
+
+- Panel settings switch and update the moment you click them.
+- The minimized bar shows your owned, wishlisted and ignored counts and when your Steam data was fetched, and sits a little above the bottom edge so the browser's link and loading text doesn't cover it.
+- Debug: a little more spacing, items seen twice (a site redrawing its cards) are listed once, and every panel action and any panel error is logged.
+
 ## 3.0.29
 
 - **New corner panel**, in Steam's colors:

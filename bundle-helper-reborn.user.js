@@ -2,7 +2,7 @@
 // @name            Bundle Helper Reborn 3.0
 // @namespace       https://github.com/SentaiBrad/
 // @author          SentaiBrad
-// @version         3.0.29
+// @version         3.0.30
 // @description     Marks the Steam games you own, have wishlisted or ignored on bundle and game store sites (Humble Bundle, Fanatical, Eneba and more), including packs and bundles, with a Steam button on each game.
 // @match           *://dailyindiegame.com/*
 // @match           *://old.reddit.com/*
@@ -442,6 +442,7 @@ Copyright 2026, SentaiBrad
 		document.documentElement.classList.toggle("bh_no_card_labels", !getSetting("card_labels"));
 		document.documentElement.classList.toggle("bh_no_bundle_summaries", !getSetting("bundle_summaries"));
 		the_panel?.applyLayout();
+		the_panel?.update();
 	}
 
 	//////////////////////////////////////////////////
@@ -451,10 +452,16 @@ Copyright 2026, SentaiBrad
 	// data came from, and the lookup result (null when nothing matched).
 	const page_items = [];
 
+	// The same item seen again (a site redrawing its cards) is listed once.
 	function recordItem(name, source, match) {
-		page_items.push({name: String(name ?? "").trim().slice(0, 120) || "(no name)", source, match});
+		const item = {name: String(name ?? "").trim().slice(0, 120) || "(no name)", source, match};
+		const key = `${item.name}\n${source}\n${match ? `${match.type} ${match.id ?? match.members?.length}` : "miss"}`;
+		if (recorded_items.has(key)) return;
+		recorded_items.add(key);
+		page_items.push(item);
 		schedulePanelUpdate();
 	}
+	const recorded_items = new Set();
 
 	// Requests made on this page, by where they went.
 	const request_counts = {steam_search: 0, steam_app_details: 0, fanatical: 0, saved: 0};
@@ -519,7 +526,9 @@ Copyright 2026, SentaiBrad
 			box-shadow: 0 0.3em 1em rgba(0, 0, 0, 0.5);
 		}
 		.panel { width: 25em; }
-		.bar { display: flex; align-items: center; gap: 0.5em; padding: 0.3em 0.7em; cursor: pointer; }
+		/* The minimized bar sits a little above the bottom edge, clear of the
+		   link and loading text browsers show in the bottom corner. */
+		.bar { display: flex; align-items: center; gap: 0.8em; padding: 0.3em 0.8em; margin-bottom: 26px; border-radius: 0 0.4em 0.4em 0; cursor: pointer; white-space: nowrap; }
 		.bar:hover { background: rgb(23, 29, 37); }
 		[hidden] { display: none !important; }
 		.head { display: flex; align-items: center; gap: 0.3em; padding: 0.4em 0.6em; background: rgb(23, 29, 37); border-bottom: 1px solid #2a475e; }
@@ -547,13 +556,13 @@ Copyright 2026, SentaiBrad
 		.choices button[aria-pressed="true"] { background: #2a475e; color: #fff; }
 		input { box-sizing: border-box; width: 100%; margin-top: 0.3em; padding: 0.15em 0.3em; font: 0.92em monospace; color: rgb(198, 212, 223); background: rgb(23, 29, 37); border: 1px solid #4b5a6b; }
 		.note { color: #8ea2b8; font-size: 0.92em; }
-		.tabs { display: flex; align-items: center; gap: 0.3em; padding: 0.4em 0.6em; border-bottom: 1px solid #2a475e; }
-		.tabs button { padding: 0 0.5em; border-radius: 0.2em; }
+		.tabs { display: flex; align-items: center; gap: 0.4em; padding: 0.45em 0.7em; border-bottom: 1px solid #2a475e; }
+		.tabs button { padding: 0.1em 0.6em; border-radius: 0.2em; }
 		.tabs button[aria-pressed="true"] { background: #2a475e; color: #fff; }
 		.tabs .spacer { flex: 1; }
 		.scroll { max-height: 45vh; overflow-y: auto; }
-		pre { margin: 0; padding: 0.5em 0.8em; font: 0.88em/1.45 monospace; white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
-		.item { display: grid; grid-template-columns: 0.8em 1fr; column-gap: 0.5em; padding: 0.25em 0.8em; border-bottom: 1px solid rgb(23, 29, 37); }
+		pre { margin: 0; padding: 0.7em 0.9em; font: 0.9em/1.6 monospace; white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
+		.item { display: grid; grid-template-columns: 0.8em 1fr; column-gap: 0.6em; row-gap: 0.1em; padding: 0.45em 0.9em; border-bottom: 1px solid rgb(23, 29, 37); line-height: 1.35; }
 		.item small { grid-column: 2; color: #8ea2b8; font-size: 0.85em; }
 		.dot { width: 0.65em; height: 0.65em; margin-top: 0.4em; border-radius: 50%; border: 1px solid #4b5a6b; box-sizing: border-box; }
 		.dot.bh_owned { background: #22e07a; border: none; } .dot.bh_wished { background: #3db8ff; border: none; }
@@ -564,7 +573,11 @@ Copyright 2026, SentaiBrad
 
 	const panel_html = `
 		<div class="bar" id="bar" role="button" tabindex="0" title="Open Bundle Helper" hidden>
-			<b>Bundle Helper</b><span class="owned">●</span><span id="bar-owned"></span>
+			<b>Bundle Helper</b>
+			<span class="owned" id="bar-owned"></span>
+			<span class="wished" id="bar-wished"></span>
+			<span class="ignored" id="bar-ignored"></span>
+			<span class="note" id="bar-age"></span>
 		</div>
 		<div class="panel" id="panel">
 			<div class="head">
@@ -622,9 +635,15 @@ Copyright 2026, SentaiBrad
 			if (!minimized) panel.update();
 		}
 
+		// Every panel action is logged, and an error in one can't break the panel.
 		const onClick = (selector, action) => $(selector).addEventListener("click", (ev) => {
 			ev.preventDefault();
-			action(ev);
+			debug_log.add("panel", `clicked ${selector}`);
+			try {
+				action(ev);
+			} catch (error) {
+				debug_log.add("error", `panel action ${selector} failed: ${error?.stack ?? error}`);
+			}
 		});
 		onClick("#open-settings", () => showView("settings"));
 		onClick("#open-debug", () => showView("debug"));
@@ -656,8 +675,18 @@ Copyright 2026, SentaiBrad
 				host.style.right = right ? "0" : "auto";
 			},
 			update() {
+				try {
+					this.render();
+				} catch (error) {
+					debug_log.add("error", `panel update failed: ${error?.stack ?? error}`);
+				}
+			},
+			render() {
 				const sets = getSteamSets();
-				$("#bar-owned").textContent = sets.ownedApps.size.toLocaleString();
+				$("#bar-owned").textContent = `${sets.ownedApps.size.toLocaleString()} owned`;
+				$("#bar-wished").textContent = `${sets.wishlist.size.toLocaleString()} wishlist`;
+				$("#bar-ignored").textContent = `${sets.ignoredApps.size.toLocaleString()} ignored`;
+				$("#bar-age").textContent = steamDataAge() ? `fetched ${steamDataAge() === "just now" ? "just now" : `${steamDataAge()} ago`}` : "never fetched";
 				if ($("#panel").hidden) return;
 				if (view === "main") updateMainView($, sets);
 				if (view === "settings") updateSettingsView($("#view-settings"));
@@ -751,7 +780,14 @@ Copyright 2026, SentaiBrad
 			button.className = "button";
 			button.textContent = text;
 			button.title = title;
-			button.addEventListener("click", action);
+			button.addEventListener("click", () => {
+				debug_log.add("panel", `clicked ${text}`);
+				try {
+					action();
+				} catch (error) {
+					debug_log.add("error", `panel action ${text} failed: ${error?.stack ?? error}`);
+				}
+			});
 			parent.append(button);
 		};
 		addButton(key_actions, "Save key", "Save the key in your userscript manager", () => {
