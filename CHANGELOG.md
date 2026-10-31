@@ -1,5 +1,9 @@
 # Changelog
 
+## 3.0.21
+
+- Eneba: the label band runs the full width of the card; the wishlist heart stays on top of it.
+
 ## 3.0.20
 
 - Fanatical: the marking stays visible while hovering a card again (3.0.19 let Fanatical's hover overlay cover it).
