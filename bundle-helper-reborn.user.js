@@ -2,7 +2,7 @@
 // @name            Bundle Helper Reborn 3.0
 // @namespace       https://github.com/SentaiBrad/
 // @author          SentaiBrad
-// @version         3.0.23
+// @version         3.0.24
 // @description     Marks owned/ignored/wishlisted games on several sites, and also adds a button to open the steam page for each game.
 // @match           *://dailyindiegame.com/*
 // @match           *://old.reddit.com/*
@@ -1284,6 +1284,9 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 
 	// Steam's search suggestions (games only). Resolves to [{appid, title}] or null on error.
 	async function searchSteamApps(term) {
+		// Steam's search returns nothing when the term contains "+"
+		// ("DOOM + DOOM II"), but finds the game without it.
+		term = term.replace(/\s*\+\s*/g, " ").trim();
 		const response = await steamGet("https://store.steampowered.com/search/suggest?term=" + encodeURIComponent(term) + "&f=games&cc=US&realm=1&l=english");
 		if (!response) return null;
 		const doc = new DOMParser().parseFromString(response.responseText, "text/html");

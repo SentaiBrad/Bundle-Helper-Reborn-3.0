@@ -1,5 +1,9 @@
 # Changelog
 
+## 3.0.24
+
+- Games with "+" in their name (like DOOM + DOOM II) are found on Steam. Steam's search returned nothing for them.
+
 ## 3.0.23
 
 - Fanatical: the Steam button sits on the bottom-right of the cover image, and marked cards are no longer taller than the rest (packs and unmarked cards looked pushed down).
