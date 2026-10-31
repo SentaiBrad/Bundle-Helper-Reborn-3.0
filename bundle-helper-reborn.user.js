@@ -2,7 +2,7 @@
 // @name            Bundle Helper Reborn 3.0
 // @namespace       https://github.com/SentaiBrad/
 // @author          SentaiBrad
-// @version         3.0.33
+// @version         3.0.34
 // @description     Marks the Steam games you own, have wishlisted or ignored on bundle and game store sites (Humble Bundle, Fanatical, Eneba and more), including packs and bundles, with a Steam button on each game.
 // @match           *://dailyindiegame.com/*
 // @match           *://old.reddit.com/*
@@ -464,7 +464,7 @@ Copyright 2026, SentaiBrad
 	const recorded_items = new Set();
 
 	// Requests made on this page, by where they went.
-	const request_counts = {steam_search: 0, steam_app_details: 0, fanatical: 0, saved: 0};
+	const request_counts = {steam_search: 0, steam_app_details: 0, steam_package_details: 0, fanatical: 0, saved: 0};
 
 	// How many items each site rule found on its latest scan. A rule that
 	// suddenly finds 0 usually means the site changed its layout.
@@ -949,7 +949,7 @@ Copyright 2026, SentaiBrad
 
 			section("Saved lookups");
 			const saved = Object.entries(loadSavedLookups());
-			const kind = (key) => key.startsWith("fanatical-contents:") ? "Fanatical products" : "Titles";
+			const kind = (key) => key.startsWith("fanatical-") ? "Fanatical products" : "Titles";
 			for (const name of ["Titles", "Fanatical products"]) {
 				const entries = saved.filter(([key]) => kind(key) === name);
 				value(name, `${entries.filter(([, e]) => e.match).length} found, ${entries.filter(([, e]) => !e.match).length} not found`);
@@ -959,6 +959,7 @@ Copyright 2026, SentaiBrad
 			section("Requests on this page");
 			value("Steam search", request_counts.steam_search);
 			value("Steam app details", request_counts.steam_app_details);
+			value("Steam package details", request_counts.steam_package_details);
 			value("Fanatical data", request_counts.fanatical);
 			value("Answered from saved lookups", request_counts.saved);
 
@@ -1132,7 +1133,7 @@ Copyright 2026, SentaiBrad
 			name.textContent = member.name || (found ? `Steam ${member.type} ${member.id}` : "Unknown game");
 			const tag = document.createElement("bh-pack-tag");
 			tag.className = state?.css ?? "";
-			tag.textContent = found ? (state?.text ?? "") : "NOT ON STEAM";
+			tag.textContent = found ? (state?.text ?? "") : "NOT FOUND";
 			row.append(dot, name, tag);
 			if (found) {
 				row.href = steamUrl(member.type, member.id);
@@ -1312,10 +1313,48 @@ Copyright 2026, SentaiBrad
 		}
 	}
 
+	// Fanatical sometimes labels a game's ID as a package ID: Resident Evil 5
+	// Gold Edition comes as package 21690, but 21690 is the game and Steam has no
+	// such package. A package that isn't owned or ignored is checked on Steam
+	// once; when Steam has no such package but has a game with that ID, the game
+	// is used.
+	function needsPackageCheck(steam) {
+		return steam.type === "sub" && getClassForSubId(Number(steam.id)) === "";
+	}
+
+	async function checkFanaticalSteamId(steam) {
+		const id = Number(steam.id);
+		const given = {type: steam.type === "sub" ? "sub" : "app", id};
+		if (!needsPackageCheck(steam)) return given;
+		const checked = await cachedLookup(`fanatical-package:${id}`, `Fanatical package ${id}`, async () => {
+			const exists = async (url) => {
+				const response = await steamGet(url, "json");
+				if (!response) return null;
+				let json = response.response;
+				if (typeof json === "string" || !json) {
+					try { json = JSON.parse(response.responseText); } catch { json = null; }
+				}
+				return Boolean(json?.[id]?.success);
+			};
+			const is_package = await exists(`https://store.steampowered.com/api/packagedetails?packageids=${id}&cc=us`);
+			if (is_package === null) return {result: null, cacheable: false};
+			if (is_package) return {result: given, cacheable: true};
+			const is_game = await exists(`https://store.steampowered.com/api/appdetails?appids=${id}&filters=basic&cc=us`);
+			if (is_game === null) return {result: null, cacheable: false};
+			debug_log.add("lookup", `Fanatical package ${id}: ${is_game ? `no such package on Steam, using game ${id}` : "not found on Steam as a package or a game"}`);
+			return {result: is_game ? {type: "app", id} : given, cacheable: true};
+		});
+		return checked ?? given;
+	}
+
 	// Fanatical sells some products with no Steam ID of their own (collections,
-	// 2-in-1s). Its product data can list the games inside, each with a Steam ID.
-	// Resolves to a pack, or null when the product lists no Steam games.
-	function lookupFanaticalContents(slug) {
+	// 2-in-1s). Its product data can list the products inside. Each one with a
+	// Steam ID is a pack member; one without is looked up like any product
+	// without a Steam ID (its own contents, then its name), so a compilation
+	// inside a pack adds its games. Members that can't be found count as not
+	// owned, and such a pack is saved for a day instead of 30.
+	// Resolves to a pack, or null when the product lists nothing.
+	function lookupFanaticalContents(slug, nested = false) {
 		return cachedLookup(`fanatical-contents:${slug}`, `Fanatical product ${slug}`, async () => {
 			let data;
 			try {
@@ -1330,21 +1369,36 @@ Copyright 2026, SentaiBrad
 			const members = [];
 			for (const bundle of data?.bundles ?? []) {
 				for (const game of bundle.games ?? []) {
-					if (game.steam?.id) {
-						members.push({type: game.steam.type === "sub" ? "sub" : "app", id: Number(game.steam.id), name: game.name ?? ""});
-					}
+					members.push(...await packMembersFor(game, nested));
 				}
 			}
-			debug_log.add("lookup", `Fanatical product ${slug}: ${members.length} Steam games inside`);
-			return {result: members.length ? {type: "pack", members} : null, cacheable: true};
+			const unknown = members.filter((member) => member.type === "unknown").length;
+			debug_log.add("lookup", `Fanatical product ${slug}: ${members.length} Steam games inside${unknown ? `, ${unknown} not found` : ""}`);
+			return {result: members.length ? {type: "pack", members} : null, cacheable: true, days: unknown ? saved_miss_days : undefined};
 		});
 	}
 
-	// For a Fanatical product without a Steam ID: its listed contents first,
-	// then a lookup by name.
-	async function resolveFanaticalProduct(product) {
+	// The pack members one product inside a pack stands for. Only one level of
+	// products inside products is followed.
+	async function packMembersFor(game, nested) {
+		const name = game.name ?? "";
+		if (game.steam?.id) {
+			return [{...await checkFanaticalSteamId(game.steam), name}];
+		}
+		const found = nested ? null : await resolveFanaticalProduct({slug: game.slug, name}, true);
+		if (found?.type === "pack") return found.members;
+		if (found) return [{...found, name}];
+		return [{type: "unknown", id: 0, name}];
+	}
+
+	// For a Fanatical product without a usable Steam ID: its package ID checked
+	// on Steam, or its listed contents, then a lookup by name.
+	async function resolveFanaticalProduct(product, nested = false) {
+		if (product.steam?.id) {
+			return checkFanaticalSteamId(product.steam);
+		}
 		if (product.slug) {
-			const pack = await lookupFanaticalContents(product.slug);
+			const pack = await lookupFanaticalContents(product.slug, nested);
 			if (pack) return pack;
 		}
 		return product.name ? resolveName(product.name) : null;
@@ -1440,7 +1494,7 @@ Copyright 2026, SentaiBrad
 	// 1 day. Changing saved_lookups_version discards everything (e.g. after the
 	// matching rules change, so old misses get another chance).
 	const saved_lookups_key = "bh_title_cache";
-	const saved_lookups_version = 4;
+	const saved_lookups_version = 5;
 	const saved_match_days = 30;
 	const saved_miss_days = 1;
 	let saved_lookups = null;
@@ -1483,6 +1537,7 @@ Copyright 2026, SentaiBrad
 	function steamGet(url, responseType) {
 		if (url.includes("/search/suggest")) request_counts.steam_search++;
 		else if (url.includes("/api/appdetails")) request_counts.steam_app_details++;
+		else if (url.includes("/api/packagedetails")) request_counts.steam_package_details++;
 		return new Promise((resolve) => {
 			GM_xmlhttpRequest({
 				method: "GET",
@@ -1595,7 +1650,8 @@ Copyright 2026, SentaiBrad
 	// Resolves to {type: "app"|"sub", id} or null.
 	// Runs a lookup once and saves its result between visits (matches for 30
 	// days, misses for 1 day, or `days` when given). lookup() resolves to
-	// {result, cacheable}; results from failed requests aren't saved. Identical
+	// {result, cacheable, days}, where days is optional and applies to that
+	// result; results from failed requests aren't saved. Identical
 	// lookups running at the same time share one request.
 	function cachedLookup(key, description, lookup, days) {
 		const cache = loadSavedLookups();
@@ -1606,10 +1662,10 @@ Copyright 2026, SentaiBrad
 		}
 		if (pending_lookups.has(key)) return pending_lookups.get(key);
 
-		const running = lookup().then(({result, cacheable}) => {
+		const running = lookup().then(({result, cacheable, days: result_days}) => {
 			if (cacheable) {
 				cache[key] = {match: result, time: getUnixTimestamp()};
-				if (days) cache[key].days = days;
+				if (days ?? result_days) cache[key].days = days ?? result_days;
 				storeSavedLookups();
 			}
 			return result;
@@ -1849,18 +1905,28 @@ Copyright 2026, SentaiBrad
 
 			const card_selector = ".bundle-game-card, .bundle-product-card, .card, .HitCard, .header-content-container, .NewPickAndMixCard, .PickAndMixCard, .ProductHeader.container";
 
-			// Products without a Steam ID of their own (collections, 2-in-1s).
-			function markProductsWithoutSteamId() {
+			// The Steam ID can be used as given: there is one, and it isn't a
+			// package ID that needs checking on Steam.
+			function usableSteamId(product) {
+				return product?.steam?.id && !needsPackageCheck(product.steam);
+			}
+
+			// Products without a usable Steam ID: collections and 2-in-1s with no
+			// ID of their own, and package IDs that need checking on Steam.
+			function markProductsNeedingLookup() {
 				for (const img of document.querySelectorAll("main img.img-full[srcset]")) {
 					const product = fanatical_cover_map.get(filenameFromURL(img.src));
-					if (!product || product.steam?.id) continue;
+					if (!product || usableSteamId(product)) continue;
 					const card = img.closest(card_selector);
 					if (!card || card.classList.contains("bh_already_processed")) continue;
 					// Whole bundles (cards linking to a bundle page) aren't products.
 					if (card.querySelector("a.HitCard__main__cover[href*='/bundle/'], a.HitCard__main__cover[href*='/pick-and-mix/']")) continue;
 					card.classList.add("bh_already_processed");
+					const source = product.steam?.id
+						? "Fanatical's package ID, checked on Steam"
+						: "Fanatical product without a Steam ID: its contents, or its name looked up on Steam";
 					resolveFanaticalProduct(product).then((match) => {
-						recordItem(product.name, "Fanatical product without a Steam ID: its contents, or its name looked up on Steam", match);
+						recordItem(product.name, source, match);
 						if (!match) return;
 						makeCard(card);
 						markMatch(card, match, (link) => placeSteamLink(card, link));
@@ -1874,7 +1940,7 @@ Copyright 2026, SentaiBrad
 					itemSelector: "img.img-full[srcset]",
 					itemStringExtractor: (img) => {
 						const product = fanatical_cover_map.get(filenameFromURL(img.src));
-						if (!product?.steam?.id) {
+						if (!usableSteamId(product)) {
 							return "";
 						}
 						return `/${product.steam.type}/${product.steam.id}`;
@@ -1885,7 +1951,7 @@ Copyright 2026, SentaiBrad
 						placeSteamLink(closest, link);
 					},
 				});
-				markProductsWithoutSteamId();
+				markProductsNeedingLookup();
 				requestMissedPageData().catch(logFailure("Fanatical data fallback"));
 			}
 			const rescanSoon = throttle(scanPage, 500);

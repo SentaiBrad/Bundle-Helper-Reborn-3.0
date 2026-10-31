@@ -1,5 +1,12 @@
 # Changelog
 
+## 3.0.34
+
+- Fanatical packs: a game that Fanatical lists under the wrong kind of Steam ID (Resident Evil 5 in the RE4 & RE5 Gold Edition Double Pack) is checked on Steam and marked by the right one. The same goes for single products.
+- Fanatical packs: a product inside a pack that has no Steam ID of its own is looked up like any other, and a compilation inside a pack adds its games. Products that still can't be found count as not owned, so a double pack always counts both, and show as NOT FOUND in the pack menu.
+- Saved lookups are cleared once, so packs saved by earlier versions are looked up again.
+- Debug report: counts Steam package-details requests.
+
 ## 3.0.33
 
 - Fanatical: games are marked even when the page loads its data before the script starts, for example in a tab opened in the background or on a slower computer. Previously nothing was marked until the page was refreshed.
