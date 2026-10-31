@@ -2,7 +2,7 @@
 // @name            Bundle Helper Reborn 3.0
 // @namespace       https://github.com/SentaiBrad/
 // @author          SentaiBrad
-// @version         3.0.30
+// @version         3.0.31
 // @description     Marks the Steam games you own, have wishlisted or ignored on bundle and game store sites (Humble Bundle, Fanatical, Eneba and more), including packs and bundles, with a Steam button on each game.
 // @match           *://dailyindiegame.com/*
 // @match           *://old.reddit.com/*
@@ -526,9 +526,10 @@ Copyright 2026, SentaiBrad
 			box-shadow: 0 0.3em 1em rgba(0, 0, 0, 0.5);
 		}
 		.panel { width: 25em; }
-		/* The minimized bar sits a little above the bottom edge, clear of the
-		   link and loading text browsers show in the bottom corner. */
-		.bar { display: flex; align-items: center; gap: 0.8em; padding: 0.3em 0.8em; margin-bottom: 26px; border-radius: 0 0.4em 0.4em 0; cursor: pointer; white-space: nowrap; }
+		/* The minimized bar reaches down to the bottom edge, with its text at the
+		   top, clear of the link and loading text browsers show in the bottom
+		   corner. */
+		.bar { display: flex; align-items: center; gap: 0.8em; padding: 0.3em 0.8em calc(0.3em + 26px); cursor: pointer; white-space: nowrap; }
 		.bar:hover { background: rgb(23, 29, 37); }
 		[hidden] { display: none !important; }
 		.head { display: flex; align-items: center; gap: 0.3em; padding: 0.4em 0.6em; background: rgb(23, 29, 37); border-bottom: 1px solid #2a475e; }

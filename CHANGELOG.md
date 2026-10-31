@@ -1,5 +1,9 @@
 # Changelog
 
+## 3.0.31
+
+- The minimized bar fills down to the bottom edge in the panel's colors, with its text above the browser's link and loading text.
+
 ## 3.0.30
 
 - Panel settings switch and update the moment you click them.
