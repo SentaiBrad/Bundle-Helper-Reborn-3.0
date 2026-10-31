@@ -1,5 +1,14 @@
 # Changelog
 
+## 3.0.29
+
+- **New corner panel**, in Steam's colors:
+  - **[−] minimizes it** to a small bar showing your owned count; click the bar to open it again. This is remembered on every site (it used to have [close], which hid it until the page was reloaded).
+  - **Settings (gear):** panel size (Auto, Small, Normal, Large, 4K), which corner it sits in, labels on cards, bundle summaries, and Steam links opening in a background tab, each on or off. The optional Steam Web API key moved here, with a switch to use it; switching it clears saved lookups and fetches your Steam data again.
+  - **Debug (bug):** Overview, Items and Log tabs, Copy all, and a "Report a problem" link. Items lists every game the script looked at on the page, where its Steam data came from, and the result, including ones it couldn't match.
+  - The debug report now also shows your settings, requests made on the page by source, how many items each site rule found, page scan timings, window size, and saved lookups by kind.
+- The panel now says "fetched just now" instead of "just now ago".
+
 ## 3.0.28
 
 - Internal cleanup. No change in behavior.

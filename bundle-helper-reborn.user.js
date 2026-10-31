@@ -2,7 +2,7 @@
 // @name            Bundle Helper Reborn 3.0
 // @namespace       https://github.com/SentaiBrad/
 // @author          SentaiBrad
-// @version         3.0.28
+// @version         3.0.29
 // @description     Marks the Steam games you own, have wishlisted or ignored on bundle and game store sites (Humble Bundle, Fanatical, Eneba and more), including packs and bundles, with a Steam button on each game.
 // @match           *://dailyindiegame.com/*
 // @match           *://old.reddit.com/*
@@ -129,11 +129,16 @@ Copyright 2026, SentaiBrad
 	// changes, at most once per `interval` ms. Errors are logged, not thrown.
 	function watchForChanges(rootNode, callback, interval = 500) {
 		const func = throttle(() => {
+			const started = performance.now();
 			try {
 				callback();
 			} catch (error) {
 				debug_log.add("error", `page scan failed: ${error?.stack ?? error}`);
 			}
+			const took = Math.round(performance.now() - started);
+			scan_stats.count++;
+			scan_stats.total_ms += took;
+			scan_stats.slowest_ms = Math.max(scan_stats.slowest_ms, took);
 		}, interval);
 		func();
 		const observer = new MutationObserver(func);
@@ -338,7 +343,7 @@ Copyright 2026, SentaiBrad
 
 	const steam_api = {
 		storage_name: "bh_steam_api_key",
-		// Filled in by future API calls; shown on the debug panel's Steam API tab.
+		// Filled in by future API calls; shown in the debug report's Steam API section.
 		stats: {requests: 0, failures: 0, last_request: "", last_error: ""},
 		// Future API calls should report through this (never pass the key in `what`).
 		noteRequest(what, ok, error) {
@@ -366,369 +371,500 @@ Copyright 2026, SentaiBrad
 	};
 
 	//////////////////////////////////////////////////
-	// Bundle Helper panel (bottom-left corner)
+	// Settings
 	//
-	// The panel is a list of sections. Each section supplies its own HTML,
-	// optional CSS, an init(panel) to hook up events and an update(panel) to
-	// refresh what it shows. New features add a section with addPanelSection()
-	// instead of editing the panel itself.
+	// Every setting is one entry in this list; the settings view is built from
+	// it. Saved values are checked against the list when loaded, so an old or
+	// damaged value falls back to the default instead of breaking anything.
 
-	// Monochrome Steam logo for the panel (same shapes as the Steam buttons).
-	const steam_icon_svg = `
-		<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" aria-label="Steam" role="img">
-			<path d="m183 280 41 28 27 41 87-62-94-96"/>
-			<circle cx="325" cy="191" r="74" fill="none" stroke="currentColor" stroke-width="40"/>
-			<ellipse cx="191" cy="340" rx="56" ry="56" fill="none" stroke="currentColor" stroke-width="40"/>
-		</svg>
-	`;
+	const settings_key = "bh_settings";
+	const setting_definitions = [
+		{id: "panel_size", group: "Panel", label: "Size", type: "choice", default: "auto",
+			choices: [["auto", "Auto"], ["small", "Small"], ["normal", "Normal"], ["large", "Large"], ["4k", "4K"]]},
+		{id: "panel_corner", group: "Panel", label: "Corner", type: "choice", default: "left",
+			choices: [["left", "Left"], ["right", "Right"]]},
+		{id: "card_labels", group: "Marking", label: "Labels on cards", type: "switch", default: true},
+		{id: "bundle_summaries", group: "Marking", label: "Bundle summaries", type: "switch", default: true},
+		{id: "background_tabs", group: "Links", label: "Steam links open in a background tab", type: "switch", default: true},
+		{id: "use_api_key", group: "Steam Web API (optional)", label: "Use my API key", type: "switch", default: false},
+	];
 
-	// Classic "bug" icon.
-	const bug_icon_svg = `
-		<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-label="Debug" role="img">
-			<path d="M9 3.5 7.6 2.1l1-1L10.3 2.8a5 5 0 0 1 3.4 0L15.4 1.1l1 1L15 3.5A5 5 0 0 1 17 7H7a5 5 0 0 1 2-3.5Z"/>
-			<path d="M6 8h12v6a6 6 0 0 1-5.25 5.95V11h-1.5v8.95A6 6 0 0 1 6 14V8Z"/>
-			<path d="M1 9h4v1.5H1zM19 9h4v1.5h-4zM1 13.25h4v1.5H1zM19 13.25h4v1.5h-4zM2.5 19.5 5.6 16.4l1.1 1.06-3.1 3.1zM21.5 19.5l-3.1-3.1-1.1 1.06 3.1 3.1z"/>
-		</svg>
-	`;
+	// Text scale for each panel size. "auto" picks one from the window width
+	// (which already includes the operating system's display scaling).
+	const panel_scales = {small: 0.9, normal: 1, large: 1.25, "4k": 1.6};
 
-	const panel_sections = [];
+	let current_settings = null;
 
-	function addPanelSection(section) {
-		panel_sections.push(section);
+	function loadSettings() {
+		const saved = GM_getValue(settings_key, {});
+		current_settings = {};
+		for (const definition of setting_definitions) {
+			current_settings[definition.id] = isValidSetting(definition, saved?.[definition.id]) ? saved[definition.id] : definition.default;
+		}
+		return current_settings;
 	}
 
-	const panel_base_css = `
-		.container {
-			display: inline-block;
-			background: #1b2838;
-			color: #ddd;
-			padding: 0.5em;
-			border-radius: 0 0.5em 0 0;
-			border: 1px #ddd outset;
-			border-width: 1px 1px 0 0;
-			font: 12px sans-serif;
+	function isValidSetting(definition, value) {
+		if (definition.type === "switch") return typeof value === "boolean";
+		return definition.choices.some(([choice]) => choice === value);
+	}
+
+	function getSetting(id) {
+		return (current_settings ?? loadSettings())[id];
+	}
+
+	function setSetting(id, value) {
+		const definition = setting_definitions.find((d) => d.id === id);
+		if (!definition || !isValidSetting(definition, value)) return;
+		getSetting(id);
+		current_settings[id] = value;
+		GM_setValue(settings_key, current_settings);
+		debug_log.add("settings", `${definition.label} = ${value}`);
+		if (id === "use_api_key") {
+			// Another account's data must never carry over: forget everything
+			// saved and fetch the Steam data again.
+			clearSavedLookups();
+			refreshSteamData().catch(() => {});
 		}
-		p {
-			margin: 0;
+		applySettings();
+	}
+
+	function panelScale() {
+		const size = getSetting("panel_size");
+		if (size !== "auto") return panel_scales[size];
+		if (window.innerWidth >= 2400) return panel_scales["4k"];
+		if (window.innerWidth >= 1600) return panel_scales.large;
+		return panel_scales.normal;
+	}
+
+	// Page-wide effects of the settings; the panel applies its own on update.
+	function applySettings() {
+		document.documentElement.classList.toggle("bh_no_card_labels", !getSetting("card_labels"));
+		document.documentElement.classList.toggle("bh_no_bundle_summaries", !getSetting("bundle_summaries"));
+		the_panel?.applyLayout();
+	}
+
+	//////////////////////////////////////////////////
+	// What happened on this page, for the debug view
+
+	// Every item the script looked at: its name on the page, where its Steam
+	// data came from, and the lookup result (null when nothing matched).
+	const page_items = [];
+
+	function recordItem(name, source, match) {
+		page_items.push({name: String(name ?? "").trim().slice(0, 120) || "(no name)", source, match});
+		schedulePanelUpdate();
+	}
+
+	// Requests made on this page, by where they went.
+	const request_counts = {steam_search: 0, steam_app_details: 0, fanatical: 0, saved: 0};
+
+	// How many items each site rule found on its latest scan. A rule that
+	// suddenly finds 0 usually means the site changed its layout.
+	const rule_counts = new Map();
+
+	function noteRule(rule, found) {
+		rule_counts.set(rule, found);
+	}
+
+	const scan_stats = {count: 0, total_ms: 0, slowest_ms: 0, last: null};
+
+	// The state of one item as shown in the debug view: a marking class (for
+	// the colored dot) and a short description.
+	function itemState(match) {
+		if (!match) return {css: "miss", text: "no match"};
+		if (match.type === "bundle") {
+			const summary = bundleSummary(match.members);
+			return {css: "", text: `bundle: ${summary.own} owned, ${summary.wish} wishlisted, ${summary.fresh} new of ${match.members.length}`};
 		}
-		a {
-			font: inherit;
-			color: inherit;
-			text-decoration: none;
+		if (match.type === "pack") {
+			const state = packState(match.members);
+			return {css: state.css, text: state.label || `pack of ${match.members.length}, none owned`};
 		}
-		a:hover {
-			color: #fff;
-			text-decoration: underline;
+		const css = classForMatch(match);
+		const words = {bh_owned: "owned", bh_wished: "wishlisted", bh_ignored: "ignored"};
+		return {css, text: `${words[css] ?? "not owned"}, ${match.type} ${match.id}`};
+	}
+
+	//////////////////////////////////////////////////
+	// Corner panel
+	//
+	// Shows the Steam data summary; the gear opens settings, the bug opens the
+	// debug report, [−] minimizes it to a small bar (clicking the bar opens it
+	// again; remembered on every site). It lives in a shadow root, so the
+	// site's styles can't reach it, and it takes after Steam's colors without
+	// imitating Steam.
+
+	const panel_minimized_key = "bh_panel_minimized";
+	const issues_url = "https://github.com/SentaiBrad/Bundle-Helper-Reborn-3.0/issues/new";
+	let the_panel = null;
+
+	const panel_icons = {
+		gear: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.4 13a7.6 7.6 0 0 0 0-2l2.1-1.6-2-3.4-2.5 1a7.4 7.4 0 0 0-1.7-1L15 3.3h-4l-.4 2.7a7.4 7.4 0 0 0-1.7 1l-2.5-1-2 3.4L6.6 11a7.6 7.6 0 0 0 0 2l-2.1 1.6 2 3.4 2.5-1a7.4 7.4 0 0 0 1.7 1l.4 2.7h4l.4-2.7a7.4 7.4 0 0 0 1.7-1l2.5 1 2-3.4zM12 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7z"/></svg>`,
+		bug: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3.5 7.6 2.1l1-1L10.3 2.8a5 5 0 0 1 3.4 0L15.4 1.1l1 1L15 3.5A5 5 0 0 1 17 7H7a5 5 0 0 1 2-3.5Z"/><path d="M6 8h12v6a6 6 0 0 1-5.25 5.95V11h-1.5v8.95A6 6 0 0 1 6 14V8Z"/><path d="M1 9h4v1.5H1zM19 9h4v1.5h-4zM1 13.25h4v1.5H1zM19 13.25h4v1.5h-4zM2.5 19.5 5.6 16.4l1.1 1.06-3.1 3.1zM21.5 19.5l-3.1-3.1-1.1 1.06 3.1 3.1z"/></svg>`,
+		minimize: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 11h14v2H5z"/></svg>`,
+	};
+
+	// Steam's store colors (read from store.steampowered.com, 2026-10-30) and a
+	// system font. Sizes are in em, so the panel size setting scales everything.
+	const panel_css = `
+		:host { all: initial; }
+		.panel, .bar {
+			box-sizing: border-box;
+			font: 1em/1.5 Arial, Helvetica, sans-serif;
+			color: rgb(198, 212, 223);
+			background: rgb(15, 25, 36);
+			border: 1px solid #2a475e;
+			border-radius: 0.4em 0.4em 0 0;
+			box-shadow: 0 0.3em 1em rgba(0, 0, 0, 0.5);
 		}
-		.right {
-			float: right;
-			margin-left: 0.5em;
-		}
-		/* Expanded views (debug, Steam settings) take the panel's existing width
-		   instead of widening it, and wrap their text. */
-		.view {
-			margin-top: 0.4em;
-			padding-top: 0.4em;
-			border-top: 1px solid #556;
-			width: 0;
-			min-width: 100%;
-			overflow-wrap: anywhere;
-		}
+		.panel { width: 25em; }
+		.bar { display: flex; align-items: center; gap: 0.5em; padding: 0.3em 0.7em; cursor: pointer; }
+		.bar:hover { background: rgb(23, 29, 37); }
+		[hidden] { display: none !important; }
+		.head { display: flex; align-items: center; gap: 0.3em; padding: 0.4em 0.6em; background: rgb(23, 29, 37); border-bottom: 1px solid #2a475e; }
+		.head b { flex: 1; color: #fff; font-weight: bold; }
+		button { all: unset; box-sizing: border-box; cursor: pointer; }
+		button:focus-visible { outline: 1px solid #66c0f4; }
+		.icon { display: inline-flex; align-items: center; justify-content: center; width: 1.8em; height: 1.6em; border-radius: 0.25em; color: rgb(198, 212, 223); }
+		.icon svg { width: 1.15em; height: 1.15em; fill: currentColor; }
+		.icon:hover, .icon.on { background: #2a475e; color: #fff; }
+		.body { padding: 0.5em 0.8em 0.7em; }
+		.row { display: flex; justify-content: space-between; gap: 1em; }
+		.owned { color: #22e07a; } .wished { color: #3db8ff; } .ignored { color: #9a9a9a; } .partial { color: #c792ff; }
+		.link { color: #66c0f4; text-decoration: underline; cursor: pointer; }
+		.actions { display: flex; flex-wrap: wrap; gap: 0.4em; margin-top: 0.5em; }
+		.button { padding: 0.15em 0.7em; border-radius: 0.2em; background: #2a475e; color: #fff; font-size: 0.92em; }
+		.button:hover { background: #66c0f4; color: rgb(15, 25, 36); }
+		.group { margin: 0.7em 0 0.2em; font-size: 0.8em; font-weight: bold; letter-spacing: 0.1em; color: #8ea2b8; text-transform: uppercase; }
+		.setting { display: flex; justify-content: space-between; align-items: center; gap: 1em; min-height: 1.8em; }
+		.switch { position: relative; width: 2.2em; height: 1.15em; border-radius: 1em; background: #4b5a6b; flex: none; }
+		.switch::after { content: ""; position: absolute; top: 0.15em; left: 0.15em; width: 0.85em; height: 0.85em; border-radius: 50%; background: #fff; }
+		.switch[aria-checked="true"] { background: #22e07a; }
+		.switch[aria-checked="true"]::after { left: auto; right: 0.15em; }
+		.choices { display: flex; border: 1px solid #4b5a6b; border-radius: 0.2em; overflow: hidden; flex: none; }
+		.choices button { padding: 0 0.5em; font-size: 0.92em; }
+		.choices button[aria-pressed="true"] { background: #2a475e; color: #fff; }
+		input { box-sizing: border-box; width: 100%; margin-top: 0.3em; padding: 0.15em 0.3em; font: 0.92em monospace; color: rgb(198, 212, 223); background: rgb(23, 29, 37); border: 1px solid #4b5a6b; }
+		.note { color: #8ea2b8; font-size: 0.92em; }
+		.tabs { display: flex; align-items: center; gap: 0.3em; padding: 0.4em 0.6em; border-bottom: 1px solid #2a475e; }
+		.tabs button { padding: 0 0.5em; border-radius: 0.2em; }
+		.tabs button[aria-pressed="true"] { background: #2a475e; color: #fff; }
+		.tabs .spacer { flex: 1; }
+		.scroll { max-height: 45vh; overflow-y: auto; }
+		pre { margin: 0; padding: 0.5em 0.8em; font: 0.88em/1.45 monospace; white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
+		.item { display: grid; grid-template-columns: 0.8em 1fr; column-gap: 0.5em; padding: 0.25em 0.8em; border-bottom: 1px solid rgb(23, 29, 37); }
+		.item small { grid-column: 2; color: #8ea2b8; font-size: 0.85em; }
+		.dot { width: 0.65em; height: 0.65em; margin-top: 0.4em; border-radius: 50%; border: 1px solid #4b5a6b; box-sizing: border-box; }
+		.dot.bh_owned { background: #22e07a; border: none; } .dot.bh_wished { background: #3db8ff; border: none; }
+		.dot.bh_ignored { border: 2px dashed #9a9a9a; } .dot.bh_partial { background: #c792ff; border: none; } .dot.miss { background: #e05555; border: none; }
+		.foot { display: flex; justify-content: space-between; padding: 0.4em 0.8em; border-top: 1px solid #2a475e; font-size: 0.92em; }
+		.copied { color: #22e07a; }
+	`;
+
+	const panel_html = `
+		<div class="bar" id="bar" role="button" tabindex="0" title="Open Bundle Helper" hidden>
+			<b>Bundle Helper</b><span class="owned">●</span><span id="bar-owned"></span>
+		</div>
+		<div class="panel" id="panel">
+			<div class="head">
+				<b id="title">Bundle Helper</b>
+				<button class="icon" id="open-settings" title="Settings">${panel_icons.gear}</button>
+				<button class="icon" id="open-debug" title="Debug report">${panel_icons.bug}</button>
+				<button class="icon" id="minimize" title="Minimize">${panel_icons.minimize}</button>
+			</div>
+			<div class="body" id="view-main">
+				<div class="row"><span>Steam data</span><span><span id="age"></span> · <span class="link" id="refresh" role="button" tabindex="0">refresh</span></span></div>
+				<div class="row"><span class="owned">Owned</span><span id="owned"></span></div>
+				<div class="row"><span class="wished">Wishlist</span><span id="wishlist"></span></div>
+				<div class="row"><span class="ignored">Ignored</span><span id="ignored"></span></div>
+				<div class="row"><span>This page</span><span id="page"></span></div>
+				<div class="actions"><button class="button" id="retry" title="Forget titles that weren't found and look them up again">Retry misses</button></div>
+			</div>
+			<div class="body" id="view-settings" hidden></div>
+			<div id="view-debug" hidden>
+				<div class="tabs">
+					<button data-tab="overview" aria-pressed="true">Overview</button>
+					<button data-tab="items" aria-pressed="false">Items</button>
+					<button data-tab="log" aria-pressed="false">Log</button>
+					<span class="spacer"></span>
+					<button class="button" id="copy" title="Copy the full report (all tabs)">Copy all</button>
+				</div>
+				<div class="scroll" id="debug-body"></div>
+				<div class="foot"><span id="copy-note"></span><a class="link" id="report" target="_blank" rel="noopener">Report a problem</a></div>
+			</div>
+		</div>
 	`;
 
 	function createPanel() {
-		const root = document.createElement("bundle-helper");
-		const shadow = root.attachShadow({mode: "open"});
-		shadow.innerHTML = `
-			<style>${panel_base_css}${panel_sections.map((s) => s.css ?? "").join("\n")}</style>
-			<div class="container">${panel_sections.map((s) => `<div data-section="${s.id}">${s.html}</div>`).join("")}</div>
-		`;
+		const host = document.createElement("bundle-helper");
+		const shadow = host.attachShadow({mode: "open"});
+		shadow.innerHTML = `<style>${panel_css}</style>${panel_html}`;
+		const $ = (selector) => shadow.querySelector(selector);
+		let view = "main";
+		let debug_tab = "overview";
+
+		function showView(name) {
+			view = view === name ? "main" : name;
+			$("#view-main").hidden = view !== "main";
+			$("#view-settings").hidden = view !== "settings";
+			$("#view-debug").hidden = view !== "debug";
+			$("#open-settings").classList.toggle("on", view === "settings");
+			$("#open-debug").classList.toggle("on", view === "debug");
+			$("#title").textContent = {main: "Bundle Helper", settings: "Settings", debug: "Debug"}[view];
+			panel.update();
+		}
+
+		function setMinimized(minimized) {
+			GM_setValue(panel_minimized_key, minimized);
+			$("#bar").hidden = !minimized;
+			$("#panel").hidden = minimized;
+			if (!minimized) panel.update();
+		}
+
+		const onClick = (selector, action) => $(selector).addEventListener("click", (ev) => {
+			ev.preventDefault();
+			action(ev);
+		});
+		onClick("#open-settings", () => showView("settings"));
+		onClick("#open-debug", () => showView("debug"));
+		onClick("#minimize", () => setMinimized(true));
+		onClick("#bar", () => setMinimized(false));
+		$("#bar").addEventListener("keydown", (ev) => { if (ev.key === "Enter") setMinimized(false); });
+		onClick("#refresh", () => refreshSteamData().catch(() => {}).finally(() => panel.update()));
+		onClick("#retry", () => {
+			const removed = clearSavedMisses();
+			debug_log.add("lookup", `cleared ${removed} saved misses, reloading page`);
+			location.reload();
+		});
+		for (const tab of shadow.querySelectorAll("[data-tab]")) {
+			tab.addEventListener("click", () => {
+				debug_tab = tab.dataset.tab;
+				for (const other of shadow.querySelectorAll("[data-tab]")) other.setAttribute("aria-pressed", String(other === tab));
+				panel.update();
+			});
+		}
+		onClick("#copy", () => copyReport(buildDebugReport("all"), $("#debug-body"), $("#copy-note")));
+		buildSettingsView($("#view-settings"));
 
 		const panel = {
-			root,
-			shadow,
-			$: (selector) => shadow.querySelector(selector),
+			host,
+			applyLayout() {
+				host.style.fontSize = `${12 * panelScale()}px`;
+				const right = getSetting("panel_corner") === "right";
+				host.style.left = right ? "auto" : "0";
+				host.style.right = right ? "0" : "auto";
+			},
 			update() {
-				for (const section of panel_sections) {
-					try {
-						section.update?.(panel);
-					} catch (error) {
-						debug_log.add("error", `panel section "${section.id}" update failed: ${error}`);
-					}
-				}
-			},
-			close() {
-				root.remove();
-			},
-			// Views are hidden sections opened by a panel button; one at a time.
-			toggleView(id) {
-				for (const view of shadow.querySelectorAll(".view")) {
-					view.hidden = (view.id === id) ? !view.hidden : true;
-				}
-				panel.update();
+				const sets = getSteamSets();
+				$("#bar-owned").textContent = sets.ownedApps.size.toLocaleString();
+				if ($("#panel").hidden) return;
+				if (view === "main") updateMainView($, sets);
+				if (view === "settings") updateSettingsView($("#view-settings"));
+				if (view === "debug") updateDebugView($("#debug-body"), debug_tab);
+				$("#report").href = `${issues_url}?title=${encodeURIComponent(`Problem on ${location.hostname} (version ${GM_info?.script?.version ?? "unknown"})`)}`;
 			},
 		};
-
-		for (const section of panel_sections) {
-			try {
-				section.init?.(panel);
-			} catch (error) {
-				debug_log.add("error", `panel section "${section.id}" init failed: ${error}`);
-			}
-		}
-		panel.update();
+		panel.applyLayout();
+		setMinimized(GM_getValue(panel_minimized_key, false) === true);
 		return panel;
 	}
 
-	// Section: Steam profile data summary and the panel's links.
-	addPanelSection({
-		id: "steam",
-		html: `
-			<p>
-				Steam profile data <a href="javascript:;" id="refresh">last fetched <output id="age"></output> ago</a>.
-			</p>
-			<p>
-				Owned:
-				<output id="ownedApps"></output> apps,
-				<output id="ownedPackages"></output> packages.
-			</p>
-			<p>
-				Ignored:
-				<output id="ignoredApps"></output> apps,
-				<output id="ignoredPackages"></output> packages.
-			</p>
-			<p>
-				<a href="javascript:;" id="close" class="right">[close]</a>
-				<a href="javascript:;" id="retry" class="right" title="Forget saved title misses and look them up again">[retry misses]</a>
-				<a href="javascript:;" id="debug-toggle" class="right icon" title="Debug info">${bug_icon_svg}</a>
-				<a href="javascript:;" id="steam-toggle" class="right icon" title="Steam settings">${steam_icon_svg}</a>
-				Wishlisted:
-				<output id="wishlist"></output> apps.
-			</p>
-		`,
-		css: `
-			.icon svg {
-				width: 12px;
-				height: 12px;
-				vertical-align: -2px;
-				fill: currentColor;
-			}
-		`,
-		init(panel) {
-			panel.$("#refresh").addEventListener("click", (ev) => {
-				ev.preventDefault();
-				refreshSteamData().catch(() => {}).finally(() => panel.update());
-			});
-			panel.$("#retry").addEventListener("click", (ev) => {
-				ev.preventDefault();
-				const removed = clearSavedMisses();
-				debug_log.add("lookup", `cleared ${removed} saved misses, reloading page`);
-				location.reload();
-			});
-			panel.$("#close").addEventListener("click", (ev) => {
-				ev.preventDefault();
-				panel.close();
-			});
-		},
-		update(panel) {
-			const sets = getSteamSets();
-			panel.$("#age").value = steamDataAge() || "never";
-			panel.$("#ownedApps").value = sets.ownedApps.size;
-			panel.$("#ownedPackages").value = sets.ownedPackages.size;
-			panel.$("#ignoredApps").value = sets.ignoredApps.size;
-			panel.$("#ignoredPackages").value = sets.ignoredPackages.size;
-			panel.$("#wishlist").value = sets.wishlist.size;
-		},
-	});
+	// "1 app", "2 apps"
+	function plural(n, word) {
+		return `${n.toLocaleString()} ${word}${n === 1 ? "" : "s"}`;
+	}
 
-	// Section: debug report, opened by the bug button. Hidden by default.
-	// Tabs show parts of the report; [copy] always copies the whole report.
-	addPanelSection({
-		id: "debug",
-		html: `
-			<div id="debug" class="view" hidden>
-				<div class="tabs">
-					<span>
-						<a href="javascript:;" class="tab" data-tab="overview">Overview</a>
-						<a href="javascript:;" class="tab" data-tab="log">Log</a>
-						<a href="javascript:;" class="tab" data-tab="api">Steam API</a>
-					</span>
-					<span>
-						<a href="javascript:;" id="debug-refresh">[refresh]</a>
-						<a href="javascript:;" id="debug-copy" title="Copy the full report (all tabs)">[copy]</a>
-					</span>
-				</div>
-				<div class="debug-body">
-					<span id="debug-copied" hidden></span>
-					<pre id="debug-text"></pre>
-				</div>
-			</div>
-		`,
-		css: `
-			/* One fixed line: tabs left, actions right. Nothing is ever inserted
-			   here, so it can't wrap or change size. */
-			.tabs {
-				display: flex;
-				justify-content: space-between;
-				gap: 0.5em;
-				white-space: nowrap;
-			}
-			.tab {
-				padding: 0 0.3em;
-				border-radius: 3px;
-			}
-			/* Status messages ("copied") float over the report instead of
-			   taking space in the layout. */
-			.debug-body {
-				position: relative;
-			}
-			#debug-copied {
-				position: absolute;
-				top: 0.3em;
-				right: 0.3em;
-				padding: 0.1em 0.5em;
-				border-radius: 3px;
-				background: #2a475e;
-				color: #fff;
-				pointer-events: none;
-			}
-			.tab.active {
-				background: #2a475e;
-				color: #fff;
-			}
-			#debug-text {
-				margin: 0.4em 0 0 0;
-				max-height: 40vh;
-				overflow-y: auto;
-				white-space: pre-wrap;
-				overflow-wrap: anywhere;
-				font: 11px monospace;
-				user-select: text;
-			}
-		`,
-		init(panel) {
-			let current_tab = "overview";
-			const show = () => {
-				for (const tab of panel.shadow.querySelectorAll(".tab")) {
-					tab.classList.toggle("active", tab.dataset.tab === current_tab);
-				}
-				panel.$("#debug-text").textContent = buildDebugReport(current_tab);
-			};
-			panel.showDebugTab = show;
-			for (const tab of panel.shadow.querySelectorAll(".tab")) {
-				tab.addEventListener("click", (ev) => {
-					ev.preventDefault();
-					current_tab = tab.dataset.tab;
-					show();
-				});
-			}
-			panel.$("#debug-toggle").addEventListener("click", (ev) => {
-				ev.preventDefault();
-				panel.toggleView("debug");
-			});
-			panel.$("#debug-refresh").addEventListener("click", (ev) => {
-				ev.preventDefault();
-				show();
-			});
-			panel.$("#debug-copy").addEventListener("click", (ev) => {
-				ev.preventDefault();
-				const text = buildDebugReport("all");
-				const done = (message) => {
-					const note = panel.$("#debug-copied");
-					note.textContent = message;
-					note.hidden = false;
-					clearTimeout(note.bh_timer);
-					note.bh_timer = setTimeout(() => note.hidden = true, 2500);
-				};
-				const fallback = () => {
-					// Clipboard blocked: show the full report and select it so Ctrl+C works.
-					panel.$("#debug-text").textContent = text;
-					const range = document.createRange();
-					range.selectNodeContents(panel.$("#debug-text"));
-					const selection = window.getSelection();
-					selection.removeAllRanges();
-					selection.addRange(range);
-					done("selected, press Ctrl+C");
-				};
-				if (navigator.clipboard?.writeText) navigator.clipboard.writeText(text).then(() => done("copied"), fallback);
-				else fallback();
-			});
-		},
-		update(panel) {
-			if (!panel.$("#debug").hidden) panel.showDebugTab();
-		},
-	});
+	function updateMainView($, sets) {
+		const age = steamDataAge();
+		$("#age").textContent = !age ? "never fetched" : age === "just now" ? "fetched just now" : `${age} ago`;
+		$("#owned").textContent = `${plural(sets.ownedApps.size, "app")} · ${plural(sets.ownedPackages.size, "package")}`;
+		$("#wishlist").textContent = plural(sets.wishlist.size, "app");
+		$("#ignored").textContent = plural(sets.ignoredApps.size, "app");
+		const count = (css) => document.querySelectorAll(`.${css}`).length;
+		const page = $("#page");
+		page.textContent = "";
+		const parts = [["owned", count("bh_owned"), "owned"], ["wished", count("bh_wished"), "wishlist"], ["partial", count("bh_partial"), "partly owned"]];
+		for (const [css, n, word] of parts) {
+			if (page.childNodes.length) page.append(" · ");
+			const part = document.createElement("span");
+			part.className = css;
+			part.textContent = `${n} ${word}`;
+			page.append(part);
+		}
+	}
 
-	// Section: Steam settings, opened by the Steam button. Hidden by default.
-	// Today it only stores the optional Web API key; nothing uses it yet.
-	addPanelSection({
-		id: "steam-settings",
-		html: `
-			<div id="steam-settings" class="view" hidden>
-				<p><b>Steam Web API key</b> (optional, not used yet)</p>
-				<p>Status: <output id="api-key-status"></output></p>
-				<p>
-					<input id="api-key-input" type="password" autocomplete="off" spellcheck="false" placeholder="32-character key">
-				</p>
-				<p>
-					<a href="javascript:;" id="api-key-save">[save]</a>
-					<a href="javascript:;" id="api-key-clear">[clear]</a>
-				</p>
-				<p class="hint">Get one at <a href="https://steamcommunity.com/dev/apikey" target="_blank" rel="noopener">steamcommunity.com/dev/apikey</a>. Stored only in your userscript manager.</p>
-			</div>
-		`,
-		css: `
-			#api-key-input {
-				box-sizing: border-box;
-				width: 100%;
-				font: 11px monospace;
-				background: #0e1621;
-				color: #ddd;
-				border: 1px solid #556;
-				padding: 1px 3px;
-				margin: 0.3em 0;
+	// Builds the settings view from setting_definitions, grouped by `group`,
+	// plus the API key field and the data buttons.
+	function buildSettingsView(container) {
+		let group = "";
+		for (const definition of setting_definitions) {
+			if (definition.group !== group) {
+				group = definition.group;
+				const heading = document.createElement("div");
+				heading.className = "group";
+				heading.textContent = group;
+				container.append(heading);
 			}
-			.hint {
-				color: #9aa;
-				font-size: 11px;
-			}
-			.hint a {
-				text-decoration: underline;
-			}
-		`,
-		init(panel) {
-			panel.$("#steam-toggle").addEventListener("click", (ev) => {
-				ev.preventDefault();
-				panel.toggleView("steam-settings");
-			});
-			panel.$("#api-key-save").addEventListener("click", (ev) => {
-				ev.preventDefault();
-				const key = panel.$("#api-key-input").value.trim();
-				if (!steam_api.isValidFormat(key)) {
-					panel.$("#api-key-status").value = "not saved: a key is 32 letters and digits (0-9, A-F)";
-					return;
+			const row = document.createElement("div");
+			row.className = "setting";
+			const label = document.createElement("span");
+			label.textContent = definition.label;
+			row.append(label);
+			if (definition.type === "switch") {
+				const control = document.createElement("button");
+				control.className = "switch";
+				control.setAttribute("role", "switch");
+				control.dataset.setting = definition.id;
+				control.title = definition.label;
+				control.addEventListener("click", () => setSetting(definition.id, !getSetting(definition.id)));
+				row.append(control);
+			} else {
+				const choices = document.createElement("span");
+				choices.className = "choices";
+				for (const [value, text] of definition.choices) {
+					const choice = document.createElement("button");
+					choice.textContent = text;
+					choice.dataset.setting = definition.id;
+					choice.dataset.value = value;
+					choice.addEventListener("click", () => setSetting(definition.id, value));
+					choices.append(choice);
 				}
-				steam_api.setKey(key);
-				panel.$("#api-key-input").value = "";
-				debug_log.add("steam", "Steam Web API key saved");
-				panel.update();
-			});
-			panel.$("#api-key-clear").addEventListener("click", (ev) => {
-				ev.preventDefault();
-				steam_api.clearKey();
-				panel.$("#api-key-input").value = "";
-				debug_log.add("steam", "Steam Web API key cleared");
-				panel.update();
-			});
-		},
-		update(panel) {
-			const key = steam_api.getKey();
-			panel.$("#api-key-status").value = key ? `saved (ends in ${key.slice(-4)})` : "not set";
-		},
-	});
+				row.append(choices);
+			}
+			container.append(row);
+		}
+
+		// The key itself is never shown again after saving, only its last 4 characters.
+		const key_input = document.createElement("input");
+		key_input.type = "password";
+		key_input.autocomplete = "off";
+		key_input.spellcheck = false;
+		key_input.placeholder = "32-character key";
+		const key_status = document.createElement("div");
+		key_status.className = "note";
+		key_status.id = "api-key-status";
+		const key_actions = document.createElement("div");
+		key_actions.className = "actions";
+		const addButton = (parent, text, title, action) => {
+			const button = document.createElement("button");
+			button.className = "button";
+			button.textContent = text;
+			button.title = title;
+			button.addEventListener("click", action);
+			parent.append(button);
+		};
+		addButton(key_actions, "Save key", "Save the key in your userscript manager", () => {
+			const key = key_input.value.trim();
+			if (!steam_api.isValidFormat(key)) {
+				key_status.textContent = "Not saved: a key is 32 letters and digits (0-9, A-F).";
+				return;
+			}
+			steam_api.setKey(key);
+			key_input.value = "";
+			debug_log.add("settings", "Steam Web API key saved");
+			the_panel?.update();
+		});
+		addButton(key_actions, "Clear key", "Remove the saved key", () => {
+			steam_api.clearKey();
+			debug_log.add("settings", "Steam Web API key cleared");
+			the_panel?.update();
+		});
+		container.append(key_input, key_status, key_actions);
+
+		const data_heading = document.createElement("div");
+		data_heading.className = "group";
+		data_heading.textContent = "Saved data";
+		const data_actions = document.createElement("div");
+		data_actions.className = "actions";
+		addButton(data_actions, "Refresh Steam data", "Fetch your owned, wishlisted and ignored lists again", () => {
+			refreshSteamData().catch(() => {}).finally(() => the_panel?.update());
+		});
+		addButton(data_actions, "Retry misses", "Forget titles that weren't found and look them up again", () => {
+			clearSavedMisses();
+			location.reload();
+		});
+		addButton(data_actions, "Clear saved lookups", "Forget every saved title, product and bundle lookup", () => {
+			clearSavedLookups();
+			location.reload();
+		});
+		const note = document.createElement("div");
+		note.className = "note";
+		note.textContent = "Nothing uses the API key yet. Switching it clears saved lookups and fetches your Steam data again.";
+		container.append(note, data_heading, data_actions);
+	}
+
+	function updateSettingsView(container) {
+		for (const control of container.querySelectorAll("[data-setting]")) {
+			const value = getSetting(control.dataset.setting);
+			if (control.classList.contains("switch")) control.setAttribute("aria-checked", String(value));
+			else control.setAttribute("aria-pressed", String(control.dataset.value === value));
+		}
+		const key = steam_api.getKey();
+		container.querySelector("#api-key-status").textContent = key ? `Key saved (ends in ${key.slice(-4)}).` : "No key saved.";
+	}
+
+	function updateDebugView(container, tab) {
+		container.textContent = "";
+		if (tab !== "items") {
+			const pre = document.createElement("pre");
+			pre.textContent = buildDebugReport(tab);
+			container.append(pre);
+			return;
+		}
+		if (!page_items.length) {
+			const pre = document.createElement("pre");
+			pre.textContent = "No items seen on this page yet.";
+			container.append(pre);
+			return;
+		}
+		for (const item of page_items) {
+			const state = itemState(item.match);
+			const row = document.createElement("div");
+			row.className = "item";
+			const dot = document.createElement("span");
+			dot.className = `dot ${state.css}`;
+			const name = document.createElement("span");
+			name.textContent = `${item.name}: ${state.text}`;
+			const source = document.createElement("small");
+			source.textContent = item.source;
+			row.append(dot, name, source);
+			container.append(row);
+		}
+	}
+
+	// Copies the report; when the clipboard is blocked, shows it selected so
+	// Ctrl+C works.
+	function copyReport(text, body, note) {
+		const done = (message) => {
+			note.textContent = message;
+			note.className = "copied";
+			clearTimeout(note.bh_timer);
+			note.bh_timer = setTimeout(() => { note.textContent = ""; }, 2500);
+		};
+		const fallback = () => {
+			body.textContent = "";
+			const pre = document.createElement("pre");
+			pre.textContent = text;
+			body.append(pre);
+			const range = document.createRange();
+			range.selectNodeContents(pre);
+			const selection = window.getSelection();
+			selection.removeAllRanges();
+			selection.addRange(range);
+			done("Selected, press Ctrl+C");
+		};
+		if (navigator.clipboard?.writeText) navigator.clipboard.writeText(text).then(() => done("Copied"), fallback);
+		else fallback();
+	}
+
+	// Updates the panel at most once a second while things are being marked.
+	const schedulePanelUpdate = throttle(() => the_panel?.update(), 1000);
 
 	// Plain-text report: [Section] headers and "Setting = value" lines.
-	// tab: "overview", "log", "api" or "all" (everything, used by [copy]).
+	// tab: "overview", "items", "log" or "all" (everything, used by Copy all).
+	// Never includes anything that identifies the user: the page address has
+	// no query or #hash, and the API key only shows its last 4 characters.
 	function buildDebugReport(tab = "all") {
 		const lines = [];
 		const section = (name) => {
@@ -751,12 +887,20 @@ Copyright 2026, SentaiBrad
 			value("Manager", info ? `${info.scriptHandler ?? "unknown"} ${info.version ?? ""}`.trim() : "unknown");
 			value("Update URL", info?.script?.updateURL || info?.script?.downloadURL || info?.scriptUpdateURL || "unknown");
 			value("Injection mode", info?.sandboxMode ?? info?.injectInto ?? "unknown");
-			value("Page", location.origin + location.pathname);
-			value("Page at script start", location.href === debug_state.url_at_start ? "same" : `${debug_state.url_at_start} (the site changed pages without reloading)`);
-			value("Site handler", debug_state.site_handler || "none (this host has no handler)");
 			value("Browser", navigator.userAgent);
 			value("Script started", `${debug_state.started_ms} ms after the page started loading`);
 			value("First item marked", debug_state.first_mark_ms === null ? "not yet" : `${debug_state.first_mark_ms} ms after the page started loading`);
+
+			section("Page");
+			value("Page", location.origin + location.pathname);
+			value("Page at script start", location.href === debug_state.url_at_start ? "same" : `${debug_state.url_at_start.split(/[?#]/)[0]} (the site changed pages without reloading)`);
+			value("Site handler", debug_state.site_handler || "none (this host has no handler)");
+			value("Window", `${window.innerWidth} x ${window.innerHeight}, ${document.visibilityState}`);
+			value("Page language", document.documentElement.lang || "not set");
+
+			section("Settings");
+			for (const definition of setting_definitions) value(definition.label, getSetting(definition.id));
+			value("Panel scale", panelScale());
 
 			section("Steam data");
 			const sets = getSteamSets();
@@ -768,16 +912,25 @@ Copyright 2026, SentaiBrad
 			value("Wishlisted apps", sets.wishlist.size);
 			value("Ignored apps", sets.ignoredApps.size);
 			value("Ignored packages", sets.ignoredPackages.size);
-			if (!sets.ownedApps.size) value("Warning", "no owned apps saved; sign in at store.steampowered.com, then click 'last fetched'");
+			if (!sets.ownedApps.size) value("Warning", "no owned apps saved; sign in at store.steampowered.com, then click refresh");
 
-			section("Title lookups");
-			const saved = Object.values(loadSavedLookups());
+			section("Saved lookups");
+			const saved = Object.entries(loadSavedLookups());
+			const kind = (key) => key.startsWith("fanatical-contents:") ? "Fanatical products" : key.startsWith("fanatical-bundle:") ? "Fanatical bundles" : "Titles";
+			for (const name of ["Titles", "Fanatical products", "Fanatical bundles"]) {
+				const entries = saved.filter(([key]) => kind(key) === name);
+				value(name, `${entries.filter(([, e]) => e.match).length} found, ${entries.filter(([, e]) => !e.match).length} not found`);
+			}
 			value("Saved format version", saved_lookups_version);
-			value("Saved matches", saved.filter((e) => e.match).length);
-			value("Saved misses", saved.filter((e) => !e.match).length);
-			value("Log lines this page", debug_log.count("lookup"));
+
+			section("Requests on this page");
+			value("Steam search", request_counts.steam_search);
+			value("Steam app details", request_counts.steam_app_details);
+			value("Fanatical data", request_counts.fanatical);
+			value("Answered from saved lookups", request_counts.saved);
 
 			section("This page");
+			value("Items seen", page_items.length);
 			value("Marked owned", count(".bh_owned"));
 			value("Marked wishlisted", count(".bh_wished"));
 			value("Marked ignored", count(".bh_ignored"));
@@ -786,19 +939,18 @@ Copyright 2026, SentaiBrad
 			value("Steam buttons", count(".bh_steamlink"));
 			value("Processed elements", count(".bh_already_processed"));
 			value("Page watchers", active_mutation_observers.length);
+			value("Page scans", `${scan_stats.count}, slowest ${scan_stats.slowest_ms} ms, average ${scan_stats.count ? Math.round(scan_stats.total_ms / scan_stats.count) : 0} ms`);
 			const duplicates = [...document.querySelectorAll(".bh_already_processed")].filter((el) => el.querySelectorAll(".bh_steamlink").length > 1).length;
 			value("Items with more than one Steam button", duplicates);
+			for (const [rule, found] of rule_counts) value(`Found by ${rule}`, found);
 			if (debug_state.site_handler === "fanatical.com") {
 				value("Fanatical fetch hook", debug_state.fetch_hook);
 				value("Fanatical covers with Steam data", `${fanatical_cover_map.size}${fanatical_cover_map.size ? "" : " (0 after the page loaded means the hook isn't seeing Fanatical's data)"}`);
 				const bundles = fanatical_bundle_stats;
 				value("Fanatical bundle cards", `${bundles.found} found, ${bundles.came_into_view} came into view, ${bundles.shown} with a summary, ${bundles.empty} with no Steam games listed, ${bundles.failed} failed`);
-				value("Fanatical bundle cards on the page now", `${document.querySelectorAll(".HitCard a.HitCard__main__cover[href]").length} (${document.querySelectorAll(".HitCard a.HitCard__main__cover.bh_already_processed").length} seen by the script)`);
 			}
 			value("Errors this page", debug_log.count("error"));
-		}
 
-		if (want("api")) {
 			section("Steam API");
 			const key = steam_api.getKey();
 			value("Key", key ? `set (ends in ${key.slice(-4)})` : "not set");
@@ -806,33 +958,30 @@ Copyright 2026, SentaiBrad
 			value("Used by", "nothing yet");
 			value("Requests this page", steam_api.stats.requests);
 			value("Failed requests", steam_api.stats.failures);
-			value("Last request", steam_api.stats.last_request || "none");
 			value("Last error", steam_api.stats.last_error || "none");
+		}
+
+		if (want("items")) {
+			section("Items (name = result, source)");
+			for (const item of page_items) value(item.name, `${itemState(item.match).text}, from ${item.source}`);
+			if (!page_items.length) lines.push("(none yet)");
 		}
 
 		if (want("log")) {
 			section("Log (newest last)");
-			const entries = debug_log.entries;
-			for (const entry of entries) {
+			for (const entry of debug_log.entries) {
 				lines.push(`${entry.time.toLocaleTimeString()} ${entry.category}: ${entry.message}`);
 			}
-			if (!entries.length) lines.push("(empty)");
+			if (!debug_log.entries.length) lines.push("(empty)");
 		}
 		return lines.join("\n");
 	}
 
-	function addBundleHelperUI(root) {
-		if (typeof root === "string") {
-			root = document.querySelector(root);
-		}
-		if (!root) {
-			root = document.body;
-		}
-
-		const panel = createPanel();
-		root.appendChild(panel.root);
-		refreshSteamDataIfOld().catch(() => {}).finally(() => panel.update());
-		return panel;
+	function addBundleHelperUI() {
+		the_panel = createPanel();
+		document.body.appendChild(the_panel.host);
+		refreshSteamDataIfOld().catch(() => {}).finally(() => the_panel.update());
+		return the_panel;
 	}
 
 	//////////////////////////////////////////////////
@@ -865,8 +1014,9 @@ Copyright 2026, SentaiBrad
 	function createSteamLink(app_or_sub, id) {
 		const a = createSteamButton(steamUrl(app_or_sub, id));
 		a.addEventListener("click", function(ev) {
-			ev.preventDefault();
 			ev.stopPropagation();
+			if (!getSetting("background_tabs")) return;   // follow the link normally
+			ev.preventDefault();
 			GM_openInTab(a.href, {active: false});
 		});
 		return a;
@@ -957,8 +1107,9 @@ Copyright 2026, SentaiBrad
 				// Opens in a background tab, like a middle-click, so the store
 				// page keeps focus and the menu stays open.
 				row.addEventListener("click", (ev) => {
-					ev.preventDefault();
 					ev.stopPropagation();
+					if (!getSetting("background_tabs")) return;   // follow the link normally
+					ev.preventDefault();
 					GM_openInTab(row.href, {active: false});
 				});
 			}
@@ -1172,6 +1323,7 @@ Copyright 2026, SentaiBrad
 
 				const {app, sub} = parseStringForSteamId(data);
 				if (app || sub) {
+					recordItem(item.alt || item.title || item.textContent || data, "Steam ID on the page", app ? {type: "app", id: app} : {type: "sub", id: sub});
 					items_with_steam_id++;
 					closest.classList.remove("bh_owned", "bh_wished", "bh_ignored");
 					const cssClass = getClassForAppId(app) || getClassForSubId(sub);
@@ -1186,6 +1338,7 @@ Copyright 2026, SentaiBrad
 			}
 		}
 
+		noteRule(`${itemSelector} in ${rootSelector}`, items_found);
 		if (items_with_steam_id) {
 			debug_log.add("site", `${itemSelector} in ${rootSelector}: ${items_found} found, ${items_with_data} with data, ${items_in_container} in a container, ${items_already_done} already done, ${items_with_steam_id} newly marked`);
 		}
@@ -1212,6 +1365,7 @@ Copyright 2026, SentaiBrad
 		return cachedLookup(`fanatical-contents:${slug}`, `Fanatical product ${slug}`, async () => {
 			let data;
 			try {
+				request_counts.fanatical++;
 				const response = await fetch(`/api/products-group/${encodeURIComponent(slug)}/en`);
 				if (!response.ok) throw new Error(`HTTP ${response.status}`);
 				data = await response.json();
@@ -1246,6 +1400,7 @@ Copyright 2026, SentaiBrad
 		return cachedLookup(`fanatical-bundle:${kind}:${slug}`, `Fanatical ${kind} ${slug}`, () => fanatical_bundle_queue(async () => {
 			let data;
 			try {
+				request_counts.fanatical++;
 				const response = await fetch(url);
 				if (!response.ok) throw new Error(`HTTP ${response.status}`);
 				data = await response.json();
@@ -1398,6 +1553,11 @@ Copyright 2026, SentaiBrad
 		return removed;
 	}
 
+	function clearSavedLookups() {
+		saved_lookups = {};
+		storeSavedLookups();
+	}
+
 	function storeSavedLookups() {
 		GM_setValue(saved_lookups_key, {version: saved_lookups_version, entries: saved_lookups});
 	}
@@ -1407,6 +1567,8 @@ Copyright 2026, SentaiBrad
 	// GET from store.steampowered.com. Resolves to the response, or null on a
 	// network/HTTP error (so the caller knows not to cache a miss).
 	function steamGet(url, responseType) {
+		if (url.includes("/search/suggest")) request_counts.steam_search++;
+		else if (url.includes("/api/appdetails")) request_counts.steam_app_details++;
 		return new Promise((resolve) => {
 			GM_xmlhttpRequest({
 				method: "GET",
@@ -1524,6 +1686,7 @@ Copyright 2026, SentaiBrad
 	function cachedLookup(key, description, lookup, days) {
 		const cache = loadSavedLookups();
 		if (cache[key]) {
+			request_counts.saved++;
 			debug_log.add("lookup", `${description} saved result: ${describeMatch(cache[key].match)}`);
 			return Promise.resolve(cache[key].match);
 		}
@@ -1722,6 +1885,8 @@ Copyright 2026, SentaiBrad
 			// Bundle and pick-and-mix cards on listing pages get a summary strip.
 			// Their contents are fetched only when a card comes into view.
 			function markBundleCards() {
+				if (!getSetting("bundle_summaries")) return;
+				noteRule("Fanatical bundle cards", document.querySelectorAll(".HitCard a.HitCard__main__cover[href]").length);
 				for (const cover of document.querySelectorAll(".HitCard a.HitCard__main__cover[href]")) {
 					const [, kind, slug] = cover.pathname.match(/\/(bundle|pick-and-mix)\/([^/]+)/) ?? [];
 					if (!slug || cover.classList.contains("bh_already_processed")) continue;
@@ -1730,6 +1895,7 @@ Copyright 2026, SentaiBrad
 					whenVisible(cover, () => {
 						fanatical_bundle_stats.came_into_view++;
 						lookupFanaticalBundle(kind, slug).then((pack) => {
+							recordItem(slug, `Fanatical ${kind} data`, pack ? {type: "bundle", members: pack.members} : null);
 							if (pack?.members.length) {
 								showBundleSummary(cover, pack.members);
 								fanatical_bundle_stats.shown++;
@@ -1754,6 +1920,7 @@ Copyright 2026, SentaiBrad
 					if (card.querySelector("a.HitCard__main__cover[href*='/bundle/'], a.HitCard__main__cover[href*='/pick-and-mix/']")) continue;
 					card.classList.add("bh_already_processed");
 					resolveFanaticalProduct(product).then((match) => {
+						recordItem(product.name, "Fanatical product without a Steam ID: its contents, or its name looked up on Steam", match);
 						if (!match) return;
 						makeCard(card);
 						markMatch(card, match, (link) => placeSteamLink(card, link));
@@ -1996,6 +2163,7 @@ Copyright 2026, SentaiBrad
 
 
 			function processTiles() {
+				noteRule("Humble tiles (.tier-item-view)", document.querySelectorAll(".tier-item-view").length);
 				for (const tile of document.querySelectorAll(".tier-item-view:not(.bh_already_processed)")) {
 					tile.classList.add("bh_already_processed");
 					const title_elem = tile.querySelector(".item-title");
@@ -2003,6 +2171,7 @@ Copyright 2026, SentaiBrad
 					const title = ownText(title_elem);
 					if (!title) debug_log.add("error", `Humble tile title came out empty; tile text is ${JSON.stringify(title_elem.textContent.trim().slice(0, 80))}`);
 					resolveName(title).then((match) => {
+						recordItem(title, "Humble title, looked up on Steam", match);
 						if (!match) return;
 						const img_container = tile.querySelector(".img-container");
 						if (img_container) makeCard(img_container);
@@ -2033,6 +2202,7 @@ Copyright 2026, SentaiBrad
 			`);
 
 			function processItchTiles() {
+				noteRule("itch.io tiles (.game_cell)", document.querySelectorAll(".index_game_cell_widget.game_cell").length);
 				const tiles = document.querySelectorAll(".index_game_cell_widget.game_cell:not(.bh_already_processed)");
 				for (const tile of tiles) {
 					tile.classList.add("bh_already_processed");
@@ -2041,6 +2211,7 @@ Copyright 2026, SentaiBrad
 					const title = ownText(title_elem);
 					if (!title) debug_log.add("error", `itch.io tile title came out empty; tile text is ${JSON.stringify(title_elem.textContent.trim().slice(0, 80))}`);
 					resolveName(title).then((match) => {
+						recordItem(title, "itch.io title, looked up on Steam", match);
 						if (!match) return;
 						markMatch(tile, match, (link) => {
 							const thumb = tile.querySelector("a.game_thumb");
@@ -2142,6 +2313,7 @@ Copyright 2026, SentaiBrad
 
 			function processEneba() {
 				// Product cards (store, search, home page rows)
+				noteRule("Eneba product links (a[title])", document.querySelectorAll("a[title][href]").length);
 				for (const link of document.querySelectorAll("a[title][href]")) {
 					if (link.closest(".bh_eneba_card")) continue;   // card already handled
 					const name = enebaGameName(link.title);
@@ -2151,6 +2323,7 @@ Copyright 2026, SentaiBrad
 					card.classList.add("bh_already_processed", "bh_eneba_card");
 					makeCard(card);
 					resolveName(name).then((match) => {
+						recordItem(name, "Eneba card title, looked up on Steam", match);
 						if (match) markMatch(card, match, (steam_link) => card.appendChild(steam_link));
 					}).catch(logFailure(`Eneba card ${JSON.stringify(name)}`));
 				}
@@ -2161,6 +2334,7 @@ Copyright 2026, SentaiBrad
 					if (name) {
 						heading.classList.add("bh_already_processed", "bh_eneba_heading");
 						resolveName(name).then((match) => {
+							recordItem(name, "Eneba page heading, looked up on Steam", match);
 							if (match) markMatch(heading, match, (link) => heading.appendChild(link));
 						}).catch(logFailure(`Eneba heading ${JSON.stringify(name)}`));
 					}
@@ -2195,11 +2369,15 @@ Copyright 2026, SentaiBrad
 
 	function main() {
 		GM_addStyle(`
+			/* The corner panel; its corner and size come from the settings. */
 			bundle-helper {
 				position: fixed;
 				bottom: 0;
-				left: 0;
 				z-index: 99;
+			}
+			.bh_no_card_labels bh-label,
+			.bh_no_bundle_summaries bh-summary {
+				display: none !important;
 			}
 
 			/* Marking: a colored outline on the item (cards get a frame and label
@@ -2384,7 +2562,7 @@ Copyright 2026, SentaiBrad
 			}
 		`);
 
-		// Adding some statistics to the corner of the screen.
+		applySettings();
 		addBundleHelperUI();
 
 		// Run site-specific code.

@@ -49,13 +49,13 @@ Updates are picked up automatically from this repository.
 
 ## The corner panel
 
-A small panel in the bottom-left corner shows when your Steam data was last fetched, and how many apps you own, have wishlisted and ignored.
+A small panel in the bottom corner shows when your Steam data was last fetched, how many apps you own, have wishlisted and ignored, and what was marked on the current page.
 
-- **last fetched:** click to fetch your Steam data again.
-- **[retry misses]:** forgets titles that weren't found and looks them up again.
-- **Steam button:** optional Steam Web API key. Nothing uses it yet.
-- **Bug button:** a debug report (what the script did on this page, its saved data and its log), with **[copy]** for bug reports.
-- **[close]:** hides the panel until the page is reloaded.
+- **refresh:** fetch your Steam data again.
+- **Retry misses:** forget titles that weren't found and look them up again.
+- **[−]:** minimize the panel to a small bar; click the bar to open it again.
+- **Settings (gear):** panel size and corner, labels on cards, bundle summaries, Steam links in a background tab, the optional Steam Web API key, and buttons to refresh or clear saved data.
+- **Debug (bug):** what the script did on this page: an overview, every item it looked at and the result, and its log. **Copy all** copies the report for a bug report, and **Report a problem** opens a new issue on GitHub. The report never includes anything that identifies you.
 
 ## Privacy
 
