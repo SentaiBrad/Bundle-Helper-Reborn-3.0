@@ -1,5 +1,10 @@
 # Changelog
 
+## 3.0.25
+
+- **Pack menu.** A pack's Steam button opens a list of the games inside, each showing whether you own it, have it wishlisted or ignored. Clicking a game opens its Steam page in a background tab; the menu stays open. Click outside it or press Esc to close.
+- Steam buttons open the Steam page in a background tab, so the store page keeps focus.
+
 ## 3.0.24
 
 - Games with "+" in their name (like DOOM + DOOM II) are found on Steam. Steam's search returned nothing for them.

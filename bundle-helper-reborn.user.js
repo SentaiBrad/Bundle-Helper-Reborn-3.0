@@ -2,7 +2,7 @@
 // @name            Bundle Helper Reborn 3.0
 // @namespace       https://github.com/SentaiBrad/
 // @author          SentaiBrad
-// @version         3.0.24
+// @version         3.0.25
 // @description     Marks owned/ignored/wishlisted games on several sites, and also adds a button to open the steam page for each game.
 // @match           *://dailyindiegame.com/*
 // @match           *://old.reddit.com/*
@@ -34,6 +34,7 @@
 // @match           *://www.eneba.com/*
 // @grant           GM_addStyle
 // @grant           GM_getValue
+// @grant           GM_openInTab
 // @grant           GM_setValue
 // @grant           GM_xmlhttpRequest
 // @grant           unsafeWindow
@@ -923,8 +924,37 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 	}
 
 	// Create a new <a> link element to the appropriate Steam URL.
+	function steamUrl(app_or_sub, id) {
+		return `https://store.steampowered.com/${app_or_sub}/${id}`;
+	}
+
+	// Clicking opens the Steam page in a background tab, like a middle-click,
+	// so the store page keeps focus.
 	function createSteamLink(app_or_sub, id) {
-		const url = `https://store.steampowered.com/${app_or_sub}/${id}`;
+		const a = createSteamButton(steamUrl(app_or_sub, id));
+		a.addEventListener("click", function(ev) {
+			ev.preventDefault();
+			ev.stopPropagation();
+			GM_openInTab(a.href, {active: false});
+		});
+		return a;
+	}
+
+	// The Steam button for a pack opens a list of the games inside (see
+	// openPackMenu). Middle-click still opens the first game, from the href.
+	function createPackButton(members) {
+		const first = members.find((member) => member.type === "app" || member.type === "sub");
+		const a = createSteamButton(first ? steamUrl(first.type, first.id) : "https://store.steampowered.com/");
+		a.title = "Games in this pack";
+		a.addEventListener("click", function(ev) {
+			ev.preventDefault();
+			ev.stopPropagation();
+			openPackMenu(a, members);
+		});
+		return a;
+	}
+
+	function createSteamButton(url) {
 		// Copied from: https://github.com/edent/SuperTinyIcons/blob/master/images/svg/steam.svg
 		const svg = `
 			<svg xmlns="http://www.w3.org/2000/svg" aria-label="Steam" role="img" viewBox="0 0 512 512" fill="#ebebeb">
@@ -938,10 +968,83 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 		a.href = url;
 		a.innerHTML = svg;
 		a.className = "bh_steamlink";
-		a.addEventListener("click", function(ev) {
-			ev.stopPropagation();
-		});
 		return a;
+	}
+
+	//////////////////////////////////////////////////
+	// Pack menu: the games inside a pack, each with its state and a link
+
+	let open_pack_menu = null;
+
+	function closePackMenu() {
+		open_pack_menu?.remove();
+		open_pack_menu = null;
+	}
+
+	// Clicks outside the menu, Esc and scrolling close it.
+	document.addEventListener("click", (ev) => {
+		if (open_pack_menu && !open_pack_menu.contains(ev.target)) closePackMenu();
+	}, true);
+	document.addEventListener("keydown", (ev) => {
+		if (ev.key === "Escape") closePackMenu();
+	});
+	window.addEventListener("scroll", closePackMenu, {passive: true});
+
+	const pack_member_states = {
+		bh_owned: {text: "OWNED", css: "owned"},
+		bh_wished: {text: "WISHLIST", css: "wished"},
+		bh_ignored: {text: "IGNORED", css: "ignored"},
+	};
+
+	function openPackMenu(button, members) {
+		const was_open_here = open_pack_menu?.bh_button === button;
+		closePackMenu();
+		if (was_open_here) return;
+
+		const menu = document.createElement("bh-pack-menu");
+		menu.bh_button = button;
+		const head = document.createElement("bh-pack-head");
+		head.textContent = `${members.length} GAMES IN THIS PACK`;
+		menu.append(head);
+
+		for (const member of members) {
+			const found = member.type === "app" || member.type === "sub";
+			const row = document.createElement(found ? "a" : "bh-pack-row");
+			row.className = "bh_pack_row";
+			const state = found ? pack_member_states[classForMatch(member)] : null;
+			const dot = document.createElement("bh-pack-dot");
+			dot.className = state?.css ?? "none";
+			const name = document.createElement("bh-pack-name");
+			name.textContent = member.name || (found ? `Steam ${member.type} ${member.id}` : "Unknown game");
+			const tag = document.createElement("bh-pack-tag");
+			tag.className = state?.css ?? "";
+			tag.textContent = found ? (state?.text ?? "") : "NOT ON STEAM";
+			row.append(dot, name, tag);
+			if (found) {
+				row.href = steamUrl(member.type, member.id);
+				// Opens in a background tab, like a middle-click, so the store
+				// page keeps focus and the menu stays open.
+				row.addEventListener("click", (ev) => {
+					ev.preventDefault();
+					ev.stopPropagation();
+					GM_openInTab(row.href, {active: false});
+				});
+			}
+			menu.append(row);
+		}
+
+		document.body.append(menu);
+		open_pack_menu = menu;
+
+		// Below the button, or above it when there's no room; inside the window.
+		const at = button.getBoundingClientRect();
+		const size = menu.getBoundingClientRect();
+		const margin = 8;
+		let top = at.bottom + 4;
+		if (top + size.height > window.innerHeight - margin) top = Math.max(margin, at.top - size.height - 4);
+		const left = Math.min(Math.max(margin, at.left), window.innerWidth - size.width - margin);
+		menu.style.top = `${top}px`;
+		menu.style.left = `${left}px`;
 	}
 
 	// Turns an element into a card: adds the frame and label, which CSS shows
@@ -986,7 +1089,7 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 
 	// Marks an element from a lookup result (a Steam game, package or pack) and
 	// adds a Steam button through addLink(link), which places it for the site.
-	// Packs have no single Steam page, so they get no button.
+	// A pack's button opens the list of games inside.
 	function markMatch(element, match, addLink) {
 		element.classList.remove(...marking_classes);
 		element.style.removeProperty("--bh-label");
@@ -1005,8 +1108,8 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 			element.classList.add(css);
 			noteMarked();
 		}
-		if (match.type !== "pack" && addLink && !element.querySelector(".bh_steamlink")) {
-			addLink(createSteamLink(match.type, match.id));
+		if (addLink && !element.querySelector(".bh_steamlink")) {
+			addLink(match.type === "pack" ? createPackButton(match.members) : createSteamLink(match.type, match.id));
 		}
 	}
 
@@ -1102,7 +1205,7 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 	// 2-in-1s). Its product data can list the games inside, each with a Steam ID.
 	// Resolves to a pack, or null when the product lists no Steam games.
 	function lookupFanaticalContents(slug) {
-		return cachedLookup(`fanatical:${slug}`, `Fanatical product ${slug}`, async () => {
+		return cachedLookup(`fanatical-contents:${slug}`, `Fanatical product ${slug}`, async () => {
 			let data;
 			try {
 				const response = await fetch(`/api/products-group/${encodeURIComponent(slug)}/en`);
@@ -1115,7 +1218,9 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 			const members = [];
 			for (const bundle of data?.bundles ?? []) {
 				for (const game of bundle.games ?? []) {
-					if (game.steam?.id) members.push({type: game.steam.type === "sub" ? "sub" : "app", id: Number(game.steam.id)});
+					if (game.steam?.id) {
+						members.push({type: game.steam.type === "sub" ? "sub" : "app", id: Number(game.steam.id), name: game.name ?? ""});
+					}
 				}
 			}
 			debug_log.add("lookup", `Fanatical product ${slug}: ${members.length} Steam games inside`);
@@ -1424,9 +1529,10 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 		if (match) return match;
 		const parts = name.split(/\s+\+\s+/).map((part) => part.trim()).filter(Boolean);
 		if (parts.length < 2) return null;
-		const members = await Promise.all(parts.map((part) => resolveTitle(part)));
-		if (!members.some(Boolean)) return null;
-		return {type: "pack", members: members.map((m) => m ?? {type: "unknown", id: 0})};
+		const matches = await Promise.all(parts.map((part) => resolveTitle(part)));
+		if (!matches.some(Boolean)) return null;
+		const members = matches.map((match, i) => ({...(match ?? {type: "unknown", id: 0}), name: parts[i]}));
+		return {type: "pack", members};
 	}
 
 	const site_mapping = {
@@ -2116,6 +2222,78 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 			bh-label::before {
 				content: var(--bh-label);
 			}
+
+			/* Pack menu: the script's own elements, styled like the corner panel. */
+			bh-pack-menu, bh-pack-head, bh-pack-row, bh-pack-dot, bh-pack-name, bh-pack-tag, .bh_pack_row {
+				all: initial;
+			}
+			bh-pack-menu {
+				position: fixed;
+				z-index: 2147483000;
+				display: block;
+				width: 280px;
+				max-height: 60vh;
+				overflow-y: auto;
+				padding: 6px 0;
+				background: #171d25;
+				border: 1px solid #3a4655;
+				border-radius: 6px;
+				box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6);
+				font: 13px sans-serif;
+				color: #ddd;
+			}
+			bh-pack-head {
+				display: block;
+				padding: 6px 12px 8px;
+				margin-bottom: 4px;
+				border-bottom: 1px solid #2a3440;
+				font: 11px sans-serif;
+				letter-spacing: 0.08em;
+				color: #9aa;
+			}
+			.bh_pack_row {
+				display: flex;
+				align-items: center;
+				gap: 8px;
+				padding: 6px 12px;
+				font: 13px sans-serif;
+				color: #ddd;
+				cursor: default;
+			}
+			a.bh_pack_row {
+				cursor: pointer;
+			}
+			a.bh_pack_row:hover {
+				background: #2a475e;
+				color: #fff;
+			}
+			bh-pack-dot {
+				display: block;
+				flex: none;
+				box-sizing: border-box;
+				width: 10px;
+				height: 10px;
+				border-radius: 50%;
+				border: 1px solid #556;
+			}
+			bh-pack-dot.owned   { background: var(--bh-color-owned); border: none; }
+			bh-pack-dot.wished  { background: var(--bh-color-wished); border: none; }
+			bh-pack-dot.ignored { border: 2px dashed var(--bh-color-ignored); }
+			bh-pack-name {
+				display: block;
+				color: inherit;
+				font: inherit;
+			}
+			bh-pack-tag {
+				display: block;
+				margin-left: auto;
+				font: 700 10px sans-serif;
+				letter-spacing: 0.08em;
+				color: #9aa;
+			}
+			bh-pack-tag.owned   { color: var(--bh-color-owned); }
+			bh-pack-tag.wished  { color: var(--bh-color-wished); }
+			bh-pack-tag.ignored { color: var(--bh-color-ignored); }
 
 			.bh_steamlink svg {
 				width: var(--bh-steamlink-size);
