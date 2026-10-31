@@ -2,8 +2,8 @@
 // @name            Bundle Helper Reborn 3.0
 // @namespace       https://github.com/SentaiBrad/
 // @author          SentaiBrad
-// @version         3.0.27
-// @description     Marks owned/ignored/wishlisted games on several sites, and also adds a button to open the steam page for each game.
+// @version         3.0.28
+// @description     Marks the Steam games you own, have wishlisted or ignored on bundle and game store sites (Humble Bundle, Fanatical, Eneba and more), including packs and bundles, with a Steam button on each game.
 // @match           *://dailyindiegame.com/*
 // @match           *://old.reddit.com/*
 // @match           *://sgtools.info/*
@@ -48,61 +48,21 @@
 // ==/UserScript==
 
 /*
+Bundle Helper Reborn 3.0
+https://github.com/SentaiBrad/Bundle-Helper-Reborn-3.0
 
-# Bundle Helper Reborn
+Marks the Steam games you own, have wishlisted or ignored while you browse
+bundle and game store sites. See README.md for what it shows, the supported
+sites and what it saves, and CONTRIBUTING.md for how the code is organized.
 
-Marks owned/ignored/wishlisted games on several sites, and also adds a button to open the steam page for each game.
-
-## Purpose
-
-If you have a Steam account, you are probably also buying games from other
-websites.
-
-This user-script can help you by highlighting (on other sites) the games you
-already have, games you have ignored, and games you have wishlisted (on Steam).
-
-It also adds a convenient button (actually, a link) to open the Steam page for
-each game on the supported third-party websites.
-
-It is complementary to the amazing [AugmentedSteam browser extension](https://augmentedsteam.com/).
-While that extension only applies to the Steam website(s), this user-script
-applies to third-party websites.
-
-It needs the permission to connect to `store.steampowered.com` to get the list
-of owned/ignored/wishlisted items for the current logged-in user.
-
-## History
-
-This user-script is a fork of ["Bundle Helper" v1.09 by "7-elephant"](https://greasyfork.org/en/scripts/16105-bundle-helper).
-
-It was initially based on 7-elephant's code, but has been completely rewritten
-for v2.0. Code for obsolete websites was removed. Additional code for
-extraneous poorly-documented functionality was also removed. This fork/version
-has a clear purpose and sticks to that purpose. It's also supposed to be easier
-to add support for more websites, or update the current ones when needed.
-
-In order to avoid name clashes, I've decided to name it "Bundle Helper Reborn".
-
-This fork also available at:
-* https://greasyfork.org/en/scripts/478401-bundle-helper-reborn
-* https://gist.github.com/denilsonsa/618ca8a9d04d574a162b10cbd3fce20f
-
-* License: [GPL-3.0-only](https://spdx.org/licenses/GPL-3.0-only.html)
-* Copyright 2016-2019, 7-elephant
-* Copyright 2023, Denilson Sá Maia
-* Copyright 2026, SentaiBrad
-
-## Bundle Helper Reborn 3.0
-
-Maintained by SentaiBrad: https://github.com/SentaiBrad/Bundle-Helper-Reborn-3.0
-Continues "Bundle Helper Reborn 2.0 - Extended" (v2.x), previously published at
-https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
-
+License: GPL-3.0-only (https://spdx.org/licenses/GPL-3.0-only.html)
+Copyright 2016-2019, 7-elephant (Bundle Helper)
+Copyright 2023, Denilson Sá Maia (Bundle Helper Reborn)
+Copyright 2026, SentaiBrad
 */
 
 (function () {
 	"use strict";
-	// jshint multistr:true
 
 	//////////////////////////////////////////////////
 	// Convenience functions
@@ -139,27 +99,16 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 		let url;
 		try {
 			url = new URL(s);
-		} catch (ex) {
-			// Invalid URL.
-			return "";
+		} catch {
+			return "";   // not a valid URL
 		}
 
 		return url.pathname.replace(reX`^.*/`, "");
 	}
 
-	// Returns a new function that will call the callback without arguments
-	// after timeout milliseconds of quietness.
-	function debounce(callback, timeout = 500) {
-		let id = null;
-		return function() {
-			clearTimeout(id);
-			id = setTimeout(callback, timeout);
-		};
-	}
-
-	// Runs the callback soon after changes, then at most once per `interval`
-	// while changes keep coming. Unlike debounce it can't be postponed forever
-	// by a page that never stops changing (Fanatical took 7 s to mark with debounce).
+	// Returns a function that runs the callback soon after it's first called,
+	// then at most once per `interval` while calls keep coming. A page that never
+	// stops changing (Fanatical) still gets scanned regularly.
 	function throttle(callback, interval = 1000) {
 		let timer = null;
 		let last_run = 0;
@@ -176,23 +125,16 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 
 	const active_mutation_observers = [];
 
-	function stopAllMutationObservers() {
-		for (const observer of active_mutation_observers) {
-			observer.disconnect();
-		}
-		active_mutation_observers.length = 0;
-	}
-
-	// Returns a new MutationObserver that observes a specific node.
-	// The observer will be immediately active.
-	function debouncedMutationObserver(rootNode, callback, timeout = 500) {
+	// Runs callback now and again whenever rootNode or anything inside it
+	// changes, at most once per `interval` ms. Errors are logged, not thrown.
+	function watchForChanges(rootNode, callback, interval = 500) {
 		const func = throttle(() => {
 			try {
 				callback();
 			} catch (error) {
 				debug_log.add("error", `page scan failed: ${error?.stack ?? error}`);
 			}
-		}, timeout);
+		}, interval);
 		func();
 		const observer = new MutationObserver(func);
 		observer.observe(rootNode, {
@@ -205,10 +147,10 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 		return observer;
 	}
 
-	// Adds a MutationObserver to each root node matched by the CSS selector.
-	function debouncedMutationObserverSelectorAll(rootSelector, callback, timeout = 500) {
+	// watchForChanges() for every element matching the CSS selector.
+	function watchAllForChanges(rootSelector, callback, interval = 500) {
 		for (const root of document.querySelectorAll(rootSelector)) {
-			debouncedMutationObserver(root, callback, timeout);
+			watchForChanges(root, callback, interval);
 		}
 	}
 
@@ -227,10 +169,6 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 		s = s.replace(/[ \t\r\n]+/g, "");
 		return new RegExp(s);
 	}
-	// Same as reX, but ignoring case.
-	function reXi(re_string) {
-		return new RegExp(reX(re_string), "i");
-	}
 
 	const re_app = reX`
 		( /app/ | /apps/ | appid= )
@@ -247,9 +185,6 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 	function parseStringForSteamId(s) {
 		const match_app = re_app.exec(s);
 		const match_sub = re_sub.exec(s);
-
-		re_app.lastIndex = 0;
-		re_sub.lastIndex = 0;
 
 		if (match_app && match_sub) {
 			console.warn("The string matched both app id and sub id. This is likely a mistake.", s, match_app, match_sub);
@@ -297,46 +232,40 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 	}
 
 	//////////////////////////////////////////////////
-	// Steam profile data caching
+	// Steam library data (owned, wishlisted, ignored), saved for 24 hours
 
-	const cachename_profile_data = "bh_profile_data";
-	const cachename_profile_time = "bh_profile_time";
-	const cache_max_age_seconds = 60 * 60 * 24;  // 24 hours
-	let cached_sets = null;
+	const steam_data_key = "bh_profile_data";
+	const steam_data_time_key = "bh_profile_time";
+	const steam_data_max_age = 60 * 60 * 24;  // 24 hours
+	let steam_sets = null;
 
-	function setProfileCache(data) {
-		cached_sets = null;
+	function saveSteamData(data) {
+		steam_sets = null;
 		data.rgCurations = {};
 		data.rgCurators = {};
 		data.rgCuratorsIgnored = [];
 		data.rgRecommendedApps = [];
 		data.rgRecommendedTags = [];
-		GM_setValue(cachename_profile_data, data);
-		GM_setValue(cachename_profile_time, getUnixTimestamp());
+		GM_setValue(steam_data_key, data);
+		GM_setValue(steam_data_time_key, getUnixTimestamp());
 	}
 
-	function clearProfileCache() {
-		cached_sets = null;
-		GM_setValue(cachename_profile_data, {});
-		GM_setValue(cachename_profile_time, 0);
-	}
-
-	function getProfileCacheAge() {
+	function steamDataAge() {
 		const now = getUnixTimestamp();
-		const cached = GM_getValue(cachename_profile_time, 0);
+		const cached = GM_getValue(steam_data_time_key, 0);
 		if (!cached) {
 			return "";
 		}
 		return humanReadableSecondsAmount(now - cached);
 	}
 
-	function isProfileCacheExpired() {
+	function isSteamDataOld() {
 		const now = getUnixTimestamp();
-		const cached = GM_getValue(cachename_profile_time, 0);
-		return now - cached > cache_max_age_seconds;
+		const cached = GM_getValue(steam_data_time_key, 0);
+		return now - cached > steam_data_max_age;
 	}
 
-	function downloadProfileData() {
+	function fetchSteamData() {
 		return new Promise((resolve, reject) => {
 			function handleError(response) {
 				debug_state.steam_fetch = `failed: HTTP ${response?.status ?? "none"} ${response?.statusText ?? ""}`.trim();
@@ -365,39 +294,36 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 		});
 	}
 
-	function downloadAndUpdateProfileCache() {
-		return downloadProfileData().then((data) => {
+	function refreshSteamData() {
+		return fetchSteamData().then((data) => {
 			const owned = data?.rgOwnedApps?.length ?? 0;
 			debug_state.steam_fetch = `ok at ${new Date().toLocaleTimeString()}: ${owned} owned apps`;
 			debug_log.add("steam", `profile data fetched: ${owned} owned apps, ${data?.rgOwnedPackages?.length ?? 0} owned packages, ${data?.rgWishlist?.length ?? 0} wishlisted`);
 			if (!owned) debug_log.add("error", "Steam returned 0 owned apps. Usually this means you're not signed in at store.steampowered.com in this browser.");
-			setProfileCache(data);
+			saveSteamData(data);
 		});
 	}
 
-	function updateProfileCacheIfExpired() {
-		if (isProfileCacheExpired()) {
-			return downloadAndUpdateProfileCache();
+	function refreshSteamDataIfOld() {
+		if (isSteamDataOld()) {
+			return refreshSteamData();
 		} else {
 			return Promise.resolve();
 		}
 	}
 
-	function getCachedSets() {
-		if (!cached_sets) {
-			const data = GM_getValue(cachename_profile_data, {});
-			cached_sets = {
-				appsInCart: new Set(data.rgAppsInCart),
+	function getSteamSets() {
+		if (!steam_sets) {
+			const data = GM_getValue(steam_data_key, {});
+			steam_sets = {
 				ignoredPackages: new Set(data.rgIgnoredPackages),
 				ownedApps: new Set(data.rgOwnedApps),
 				ownedPackages: new Set(data.rgOwnedPackages),
-				packagesInCart: new Set(data.rgPackagesInCart),
 				wishlist: new Set(data.rgWishlist),
 				ignoredApps: new Set(Object.keys(data.rgIgnoredApps ?? {}).map((key) => Number(key))),
-				excludedTags: new Set(data.rgExcludedTags?.map((obj) => obj.name)),
 			};
 		}
-		return cached_sets;
+		return steam_sets;
 	}
 
 	//////////////////////////////////////////////////
@@ -426,9 +352,6 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 		},
 		getKey() {
 			return String(GM_getValue(this.storage_name, "") || "");
-		},
-		hasKey() {
-			return this.getKey().length > 0;
 		},
 		// Steam Web API keys are 32 hexadecimal characters.
 		isValidFormat(key) {
@@ -594,11 +517,11 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 		init(panel) {
 			panel.$("#refresh").addEventListener("click", (ev) => {
 				ev.preventDefault();
-				downloadAndUpdateProfileCache().catch(() => {}).finally(() => panel.update());
+				refreshSteamData().catch(() => {}).finally(() => panel.update());
 			});
 			panel.$("#retry").addEventListener("click", (ev) => {
 				ev.preventDefault();
-				const removed = clearTitleMisses();
+				const removed = clearSavedMisses();
 				debug_log.add("lookup", `cleared ${removed} saved misses, reloading page`);
 				location.reload();
 			});
@@ -608,8 +531,8 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 			});
 		},
 		update(panel) {
-			const sets = getCachedSets();
-			panel.$("#age").value = getProfileCacheAge() || "never";
+			const sets = getSteamSets();
+			panel.$("#age").value = steamDataAge() || "never";
 			panel.$("#ownedApps").value = sets.ownedApps.size;
 			panel.$("#ownedPackages").value = sets.ownedPackages.size;
 			panel.$("#ignoredApps").value = sets.ignoredApps.size;
@@ -836,9 +759,9 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 			value("First item marked", debug_state.first_mark_ms === null ? "not yet" : `${debug_state.first_mark_ms} ms after the page started loading`);
 
 			section("Steam data");
-			const sets = getCachedSets();
-			const fetched = GM_getValue(cachename_profile_time, 0);
-			value("Last fetched", fetched ? `${new Date(fetched * 1000).toISOString()} (${getProfileCacheAge()} ago)` : "never");
+			const sets = getSteamSets();
+			const fetched = GM_getValue(steam_data_time_key, 0);
+			value("Last fetched", fetched ? `${new Date(fetched * 1000).toISOString()} (${steamDataAge()} ago)` : "never");
 			value("Fetch on this page", debug_state.steam_fetch);
 			value("Owned apps", sets.ownedApps.size);
 			value("Owned packages", sets.ownedPackages.size);
@@ -848,8 +771,8 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 			if (!sets.ownedApps.size) value("Warning", "no owned apps saved; sign in at store.steampowered.com, then click 'last fetched'");
 
 			section("Title lookups");
-			const saved = Object.values(loadTitleCache());
-			value("Saved format version", title_cache_version);
+			const saved = Object.values(loadSavedLookups());
+			value("Saved format version", saved_lookups_version);
 			value("Saved matches", saved.filter((e) => e.match).length);
 			value("Saved misses", saved.filter((e) => !e.match).length);
 			value("Log lines this page", debug_log.count("lookup"));
@@ -899,7 +822,7 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 	}
 
 	function addBundleHelperUI(root) {
-		if (typeof root == "string") {
+		if (typeof root === "string") {
 			root = document.querySelector(root);
 		}
 		if (!root) {
@@ -908,7 +831,7 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 
 		const panel = createPanel();
 		root.appendChild(panel.root);
-		updateProfileCacheIfExpired().catch(() => {}).finally(() => panel.update());
+		refreshSteamDataIfOld().catch(() => {}).finally(() => panel.update());
 		return panel;
 	}
 
@@ -917,7 +840,7 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 
 	function getClassForAppId(app) {
 		if (!app) return "";
-		const sets = getCachedSets();
+		const sets = getSteamSets();
 		if (sets.ownedApps.has(app)) return "bh_owned";
 		if (sets.wishlist.has(app)) return "bh_wished";
 		if (sets.ignoredApps.has(app)) return "bh_ignored";
@@ -926,7 +849,7 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 
 	function getClassForSubId(sub) {
 		if (!sub) return "";
-		const sets = getCachedSets();
+		const sets = getSteamSets();
 		if (sets.ownedPackages.has(sub)) return "bh_owned";
 		if (sets.ignoredPackages.has(sub)) return "bh_ignored";
 		return "";
@@ -1183,6 +1106,7 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 
 	// Calls callback(element) once, the first time the element comes near the
 	// visible part of the page.
+	const visibility_margin = "300px";   // start a little before the element scrolls into view
 	const when_visible = new Map();
 	const visibility_observer = new IntersectionObserver((entries) => {
 		for (const entry of entries) {
@@ -1192,7 +1116,7 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 			when_visible.delete(entry.target);
 			callback?.(entry.target);
 		}
-	}, {rootMargin: "300px"});
+	}, {rootMargin: visibility_margin});
 
 	function whenVisible(element, callback) {
 		when_visible.set(element, callback);
@@ -1204,6 +1128,17 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 		return (error) => debug_log.add("error", `${where}: ${error?.stack ?? error}`);
 	}
 
+	// Text sitting directly inside an element, ignoring text in its child
+	// elements. Humble puts extra labels inside the title element, which this
+	// skips.
+	function ownText(element) {
+		const parts = [];
+		for (const node of element.childNodes) {
+			if (node.nodeType === Node.TEXT_NODE) parts.push(node.textContent.trim());
+		}
+		return parts.join("").trim();
+	}
+
 	function markElements({
 		rootSelector = "body",
 		itemSelector = "a[href*='store.steampowered.com/']",
@@ -1211,33 +1146,33 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 		closestSelector = "*",
 		addSteamLinkFunc = (item, closest, steam_link) => {},
 	}) {
-		let total_items = 0;
-		let valid_data_items = 0;
-		let valid_closest_items = 0;
-		let skipped_items = 0;
-		let marked_items = 0;
+		let items_found = 0;
+		let items_with_data = 0;
+		let items_in_container = 0;
+		let items_already_done = 0;
+		let items_with_steam_id = 0;
 		for (const root of document.querySelectorAll(rootSelector)) {
 			for (const item of root.querySelectorAll(itemSelector)) {
-				total_items++;
+				items_found++;
 				const data = itemStringExtractor(item);
 				if (!data) {
 					continue;
 				}
-				valid_data_items++;
+				items_with_data++;
 				const closest = item.closest(closestSelector);
 				if (!closest) {
 					continue;
 				}
-				valid_closest_items++;
+				items_in_container++;
 				if (closest.classList.contains("bh_already_processed")) {
-					skipped_items++;
+					items_already_done++;
 					continue;
 				}
 				closest.classList.add("bh_already_processed");
 
 				const {app, sub} = parseStringForSteamId(data);
 				if (app || sub) {
-					marked_items++;
+					items_with_steam_id++;
 					closest.classList.remove("bh_owned", "bh_wished", "bh_ignored");
 					const cssClass = getClassForAppId(app) || getClassForSubId(sub);
 					if (cssClass) {
@@ -1251,25 +1186,8 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 			}
 		}
 
-		console.info(
-			"markElements(",
-			"rootSelector=", rootSelector, ",",
-			"itemSelector=", itemSelector, ",",
-			"closestSelector=", closestSelector, "):",
-			`${total_items} total elements, ${valid_data_items} with valid data, ${valid_closest_items} with valid closest element, ${skipped_items} skipped, ${marked_items} marked`
-		);
-	}
-
-	// This function tries to undo the effects of markElements().
-	function unmarkAllElements() {
-		const classes = [
-			"bh_owned", "bh_wished", "bh_ignored", "bh_already_processed",
-		];
-		for (const elem of document.querySelectorAll(classes.map((s) => `.${s}`).join(", "))) {
-			elem.classList.remove(...classes);
-		}
-		for (const elem of document.querySelectorAll(".bh_steamlink")) {
-			elem.remove();
+		if (items_with_steam_id) {
+			debug_log.add("site", `${itemSelector} in ${rootSelector}: ${items_found} found, ${items_with_data} with data, ${items_in_container} in a container, ${items_already_done} already done, ${items_with_steam_id} newly marked`);
 		}
 	}
 
@@ -1316,7 +1234,9 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 
 	// The Steam games in a Fanatical bundle (/bundle/<slug>) or pick-and-mix
 	// (/pick-and-mix/<slug>), saved for a day because bundles change.
-	const fanatical_bundle_queue = requestQueue(3);
+	const bundle_request_limit = 3;      // bundle lookups running at once
+	const bundle_lookup_days = 1;        // bundles change, so their contents are saved for a day
+	const fanatical_bundle_queue = requestQueue(bundle_request_limit);
 	const fanatical_bundle_stats = {found: 0, came_into_view: 0, shown: 0, empty: 0, failed: 0};
 
 	function lookupFanaticalBundle(kind, slug) {
@@ -1348,7 +1268,7 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 			}
 			debug_log.add("lookup", `Fanatical ${kind} ${slug}: ${members.length} Steam games`);
 			return {result: {type: "pack", members}, cacheable: true};
-		}), 1);
+		}), bundle_lookup_days);
 	}
 
 	// For a Fanatical product without a Steam ID: its listed contents first,
@@ -1359,16 +1279,6 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 			if (pack) return pack;
 		}
 		return product.name ? resolveName(product.name) : null;
-	}
-
-	// For sites that embed Steam CDN image URLs directly in <img> tags.
-	function markBySteamImageUrl(rootSelector, closestSelector) {
-		markElements({
-			rootSelector: rootSelector,
-			itemSelector: "img[src*='steamstatic.com/steam/apps/'], img[src*='cdn.akamai.steamstatic.com']",
-			itemStringExtractor: (img) => img.src,
-			closestSelector: closestSelector,
-		});
 	}
 
 	// For simple static sites that have plain Steam store links in the DOM.
@@ -1458,41 +1368,41 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 	}
 
 	// Title lookups are saved between visits. Matches are kept 30 days and misses
-	// 1 day. Changing title_cache_version discards everything (e.g. after the
+	// 1 day. Changing saved_lookups_version discards everything (e.g. after the
 	// matching rules change, so old misses get another chance).
-	const title_cache_name = "bh_title_cache";
-	const title_cache_version = 4;
-	const title_cache_match_days = 30;
-	const title_cache_miss_days = 1;
-	let title_cache = null;
+	const saved_lookups_key = "bh_title_cache";
+	const saved_lookups_version = 4;
+	const saved_match_days = 30;
+	const saved_miss_days = 1;
+	let saved_lookups = null;
 
-	function loadTitleCache() {
-		if (title_cache) return title_cache;
-		const stored = GM_getValue(title_cache_name, null);
-		title_cache = (stored && stored.version === title_cache_version && stored.entries) ? stored.entries : {};
+	function loadSavedLookups() {
+		if (saved_lookups) return saved_lookups;
+		const stored = GM_getValue(saved_lookups_key, null);
+		saved_lookups = (stored && stored.version === saved_lookups_version && stored.entries) ? stored.entries : {};
 		const now = getUnixTimestamp();
-		for (const [key, entry] of Object.entries(title_cache)) {
-			const max_age = (entry?.days ?? (entry?.match ? title_cache_match_days : title_cache_miss_days)) * 86400;
-			if (!entry || !(now - entry.time <= max_age)) delete title_cache[key];
+		for (const [key, entry] of Object.entries(saved_lookups)) {
+			const max_age = (entry?.days ?? (entry?.match ? saved_match_days : saved_miss_days)) * 86400;
+			if (!entry || !(now - entry.time <= max_age)) delete saved_lookups[key];
 		}
-		return title_cache;
+		return saved_lookups;
 	}
 
-	function clearTitleMisses() {
-		const cache = loadTitleCache();
+	function clearSavedMisses() {
+		const cache = loadSavedLookups();
 		let removed = 0;
 		for (const [key, entry] of Object.entries(cache)) {
 			if (!entry.match) { delete cache[key]; removed++; }
 		}
-		saveTitleCache();
+		storeSavedLookups();
 		return removed;
 	}
 
-	function saveTitleCache() {
-		GM_setValue(title_cache_name, {version: title_cache_version, entries: title_cache});
+	function storeSavedLookups() {
+		GM_setValue(saved_lookups_key, {version: saved_lookups_version, entries: saved_lookups});
 	}
 
-	const pending_title_lookups = new Map();
+	const pending_lookups = new Map();
 
 	// GET from store.steampowered.com. Resolves to the response, or null on a
 	// network/HTTP error (so the caller knows not to cache a miss).
@@ -1532,7 +1442,7 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 	// Resolves to [{appid: packageid, title}] or null on error.
 	async function getSteamPackages(appid) {
 		// "basic,packages,package_groups" is the combination verified to return the
-		// package list; asking for package_groups alone came back empty (3.0.9).
+		// package list; asking for package_groups alone returns an empty list.
 		const response = await steamGet("https://store.steampowered.com/api/appdetails?appids=" + appid + "&filters=basic,packages,package_groups&cc=us&l=english", "json");
 		if (!response) return null;
 		let json = response.response;
@@ -1612,22 +1522,22 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 	// {result, cacheable}; results from failed requests aren't saved. Identical
 	// lookups running at the same time share one request.
 	function cachedLookup(key, description, lookup, days) {
-		const cache = loadTitleCache();
+		const cache = loadSavedLookups();
 		if (cache[key]) {
 			debug_log.add("lookup", `${description} saved result: ${describeMatch(cache[key].match)}`);
 			return Promise.resolve(cache[key].match);
 		}
-		if (pending_title_lookups.has(key)) return pending_title_lookups.get(key);
+		if (pending_lookups.has(key)) return pending_lookups.get(key);
 
 		const running = lookup().then(({result, cacheable}) => {
 			if (cacheable) {
 				cache[key] = {match: result, time: getUnixTimestamp()};
 				if (days) cache[key].days = days;
-				saveTitleCache();
+				storeSavedLookups();
 			}
 			return result;
-		}).finally(() => pending_title_lookups.delete(key));
-		pending_title_lookups.set(key, running);
+		}).finally(() => pending_lookups.delete(key));
+		pending_lookups.set(key, running);
 		return running;
 	}
 
@@ -1655,7 +1565,7 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 		if (parts.length < 2) return null;
 		const matches = await Promise.all(parts.map((part) => resolveTitle(part)));
 		if (!matches.some(Boolean)) return null;
-		const members = matches.map((match, i) => ({...(match ?? {type: "unknown", id: 0}), name: parts[i]}));
+		const members = matches.map((found, i) => ({...(found ?? {type: "unknown", id: 0}), name: parts[i]}));
 		return {type: "pack", members};
 	}
 
@@ -1666,7 +1576,7 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 				.bh_basic_style table.tablesorter tbody tr.bh_owned,
 				.bh_basic_style table.tablesorter tbody tr.bh_wished,
 				.bh_basic_style table.tablesorter tbody tr.bh_ignored {
-					background: var(--bh-bgcolor) linear-gradient(135deg, rgba(0, 0, 0, 0.70) 10%, rgba(0, 0, 0, 0) 100%) !important;
+					background: var(--bh-color) linear-gradient(135deg, rgba(0, 0, 0, 0.70) 10%, rgba(0, 0, 0, 0) 100%) !important;
 					color: var(--bh-fgcolor) !important;
 				}
 			`);
@@ -1758,7 +1668,7 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 			const original_fetch = unsafeWindow.fetch;
 			debug_state.fetch_hook = "installed";
 			unsafeWindow.fetch = async function(...args) {
-				let [resource, options] = args;
+				const [resource, options] = args;
 				const response = await original_fetch(resource, options);
 
 				// Replacing the .json() method.
@@ -1798,10 +1708,8 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 				return response;
 			};
 
-			// Setting a MutationObserver on the whole document is bad for
-			// performance, but I can't find any better way, given the website
-			// rewrites the DOM at will. At least, I'm increasing the debouncing
-			// time to at least 2 seconds.
+			// Fanatical rewrites its page all the time, so the whole body is
+			// watched; scans run at most every 2 seconds.
 			// On the cover image when the card has one; product page headers keep
 			// the button inline.
 			function placeSteamLink(card, link) {
@@ -1875,7 +1783,7 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 			}
 			const rescanSoon = throttle(scanPage, 500);
 
-			debouncedMutationObserverSelectorAll("body", scanPage, 2000);
+			watchAllForChanges("body", scanPage, 2000);
 
 			// We don't even try matching the dropdown results from the top bar.
 			// It's not reliable and doesn't work properly.
@@ -1904,7 +1812,7 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 					right: 10px;
 				}
 			`);
-			debouncedMutationObserverSelectorAll(".main-list-results", function() {
+			watchAllForChanges(".main-list-results", function() {
 				markElements({
 					rootSelector: ".main-list-results",
 					itemSelector: "a[data-prod-id]",
@@ -1940,7 +1848,7 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 					color: inherit;
 				}
 			`);
-			debouncedMutationObserverSelectorAll(".header-search .results", function() {
+			watchAllForChanges(".header-search .results", function() {
 				markElements({
 					rootSelector: ".header-search .results",
 					itemSelector: "a[data-prod-id]",
@@ -1954,7 +1862,7 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 		},
 		"reddit.com": function() {
 			document.body.classList.add("bh_basic_style");
-			debouncedMutationObserverSelectorAll(".content", function() {
+			watchAllForChanges(".content", function() {
 				markElements({
 					itemSelector: "a[href*='store.steampowered.com/'], a[href*='steamcommunity.com/']",
 					itemStringExtractor: (a) => a.href,
@@ -2092,7 +2000,7 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 					tile.classList.add("bh_already_processed");
 					const title_elem = tile.querySelector(".item-title");
 					if (!title_elem) continue;
-					const title = ([...title_elem.childNodes].filter(n => n.nodeType === Node.TEXT_NODE).map(n => n.textContent.trim()).join("")).trim();
+					const title = ownText(title_elem);
 					if (!title) debug_log.add("error", `Humble tile title came out empty; tile text is ${JSON.stringify(title_elem.textContent.trim().slice(0, 80))}`);
 					resolveName(title).then((match) => {
 						if (!match) return;
@@ -2104,11 +2012,11 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 			}
 
 			processTiles();
-			debouncedMutationObserverSelectorAll("body", processTiles, 2000);
+			watchAllForChanges("body", processTiles, 2000);
 		},
 		"hrkgame.com": function() {
 			document.body.classList.add("bh_basic_style");
-			debouncedMutationObserverSelectorAll("body", () =>
+			watchAllForChanges("body", () =>
 				markBySteamHref("body", ".product-item, article, li")
 			, 1000);
 		},
@@ -2119,9 +2027,9 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 		"itch.io": function() {
 			document.body.classList.add("bh_basic_style");
 			GM_addStyle(`
-				.bh_basic_style .index_game_cell_widget.bh_owned   { outline: 3px solid var(--bh-bgcolor); outline-offset: -3px; }
-				.bh_basic_style .index_game_cell_widget.bh_wished  { outline: 3px solid var(--bh-bgcolor); outline-offset: -3px; }
-				.bh_basic_style .index_game_cell_widget.bh_ignored { outline: 3px solid var(--bh-bgcolor); outline-offset: -3px; }
+				.bh_basic_style .index_game_cell_widget.bh_owned   { outline: 3px solid var(--bh-color); outline-offset: -3px; }
+				.bh_basic_style .index_game_cell_widget.bh_wished  { outline: 3px solid var(--bh-color); outline-offset: -3px; }
+				.bh_basic_style .index_game_cell_widget.bh_ignored { outline: 3px solid var(--bh-color); outline-offset: -3px; }
 			`);
 
 			function processItchTiles() {
@@ -2130,7 +2038,7 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 					tile.classList.add("bh_already_processed");
 					const title_elem = tile.querySelector(".game_title, .title");
 					if (!title_elem) continue;
-					const title = ([...title_elem.childNodes].filter(n => n.nodeType === Node.TEXT_NODE).map(n => n.textContent.trim()).join("")).trim();
+					const title = ownText(title_elem);
 					if (!title) debug_log.add("error", `itch.io tile title came out empty; tile text is ${JSON.stringify(title_elem.textContent.trim().slice(0, 80))}`);
 					resolveName(title).then((match) => {
 						if (!match) return;
@@ -2147,20 +2055,21 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 				}
 			}
 
-			// Retry loop: tiles load after script fires, keep trying for 10 seconds
-			let _itchRetries = 0;
-			function _itchRetry() {
+			// Tiles can load after the script starts: check once a second for up to
+			// 10 seconds until some appear.
+			let retries = 0;
+			function retryUntilTilesAppear() {
 				processItchTiles();
-				if (document.querySelectorAll(".index_game_cell_widget.game_cell").length === 0 && _itchRetries++ < 10) {
-					setTimeout(_itchRetry, 1000);
+				if (document.querySelectorAll(".index_game_cell_widget.game_cell").length === 0 && retries++ < 10) {
+					setTimeout(retryUntilTilesAppear, 1000);
 				}
 			}
-			_itchRetry();
-			debouncedMutationObserverSelectorAll("body", processItchTiles, 2000);
+			retryUntilTilesAppear();
+			watchAllForChanges("body", processItchTiles, 2000);
 		},
 		"tiltify.com": function() {
 			document.body.classList.add("bh_basic_style");
-			debouncedMutationObserverSelectorAll("body", () =>
+			watchAllForChanges("body", () =>
 				markBySteamHref("body", ".reward-card, article, li")
 			, 2000);
 		},
@@ -2174,9 +2083,9 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 			// names are generated and change between site updates, so nothing here
 			// depends on them: cards are found from the product link's title
 			// attribute, and the product page from its single <h1>.
-			// Eneba cards move on hover; marking uses the ring/tint style, which
-			// doesn't affect size or position, and the Steam button is placed
-			// absolutely inside the card.
+			// Eneba cards move and grow on hover, so marking never changes their
+			// size or position, and the Steam button is placed absolutely inside
+			// the card.
 			document.body.classList.add("bh_basic_style");
 			GM_addStyle(`
 				.bh_eneba_card {
@@ -2242,7 +2151,7 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 					card.classList.add("bh_already_processed", "bh_eneba_card");
 					makeCard(card);
 					resolveName(name).then((match) => {
-						if (match) markMatch(card, match, (link) => card.appendChild(link));
+						if (match) markMatch(card, match, (steam_link) => card.appendChild(steam_link));
 					}).catch(logFailure(`Eneba card ${JSON.stringify(name)}`));
 				}
 				// Product page heading
@@ -2258,11 +2167,11 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 				}
 			}
 
-			debouncedMutationObserverSelectorAll("body", processEneba, 1000);
+			watchAllForChanges("body", processEneba, 1000);
 		},
 		"g2a.com": function() {
 			document.body.classList.add("bh_basic_style");
-			debouncedMutationObserverSelectorAll("body", () =>
+			watchAllForChanges("body", () =>
 				markBySteamHref("body", "[class*='tile'], [class*='card'], article, li")
 			, 2000);
 		},
@@ -2293,11 +2202,10 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 				z-index: 99;
 			}
 
-			/* Marking style (3.0.13): a solid outline drawn on top of the item, plus
-			   a small OWNED / WISHLIST / IGNORED label on card-style items. The
-			   item's own colors are untouched and nothing is faded. Outlines never
-			   change size or position (safe for cards that move on hover).
-			   All look settings are variables, for a future settings panel. */
+			/* Marking: a colored outline on the item (cards get a frame and label
+			   band instead, below). The item's own colors are untouched and nothing
+			   is faded; outlines never change size or position. Every look setting
+			   is a CSS variable. */
 			body {
 				--bh-color-owned: #22e07a;
 				--bh-color-wished: #3db8ff;
@@ -2307,10 +2215,10 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 				--bh-label-text-color: #0b0b0b;
 				--bh-steamlink-size: 24px;
 			}
-			.bh_owned   { --bh-color: var(--bh-color-owned);   --bh-bgcolor: var(--bh-color-owned);   --bh-outline-style: solid;  --bh-label: "OWNED"; }
-			.bh_wished  { --bh-color: var(--bh-color-wished);  --bh-bgcolor: var(--bh-color-wished);  --bh-outline-style: solid;  --bh-label: "WISHLIST"; }
-			.bh_ignored { --bh-color: var(--bh-color-ignored); --bh-bgcolor: var(--bh-color-ignored); --bh-outline-style: dashed; --bh-label: "IGNORED"; }
-			.bh_partial { --bh-color: var(--bh-color-partial); --bh-bgcolor: var(--bh-color-partial); --bh-outline-style: solid;  --bh-label: "PARTIAL"; }
+			.bh_owned   { --bh-color: var(--bh-color-owned);     --bh-outline-style: solid;  --bh-label: "OWNED"; }
+			.bh_wished  { --bh-color: var(--bh-color-wished);   --bh-outline-style: solid;  --bh-label: "WISHLIST"; }
+			.bh_ignored { --bh-color: var(--bh-color-ignored); --bh-outline-style: dashed; --bh-label: "IGNORED"; }
+			.bh_partial { --bh-color: var(--bh-color-partial); --bh-outline-style: solid;  --bh-label: "PARTIAL"; }
 			/* A pack with wishlisted games but none owned. */
 			.bh_pack.bh_wished { --bh-outline-style: dashed; }
 			.bh_basic_style .bh_owned,

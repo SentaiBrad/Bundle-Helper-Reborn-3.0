@@ -1,5 +1,9 @@
 # Changelog
 
+## 3.0.28
+
+- Internal cleanup. No change in behavior.
+
 ## 3.0.27
 
 - Debug report: errors while scanning a page are logged, and Fanatical bundle cards are counted (found, checked, shown).

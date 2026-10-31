@@ -32,6 +32,41 @@ Site handlers (in `site_mapping`) only describe their site: which element is a g
 - Marking never changes an item's size or position, and hovering doesn't change it.
 - The Steam button goes bottom-right of the card's image unless the site needs it elsewhere.
 
+## Code style
+
+In order of importance:
+
+1. **It works** on the real site. Correct marking comes first.
+2. **It's compatible** with Tampermonkey and Violentmonkey (see [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md)), in current Firefox and Waterfox first and Chromium browsers too.
+3. **It's readable and lean.**
+4. **It's consistent.**
+
+A site-specific fix may break a style rule when the site forces it. Add one comment saying why, so nobody "cleans it up" later.
+
+**Readable**
+- One function does one job, and its name says what it does.
+- Return early instead of nesting deeply.
+- No clever one-liners. Spell it out over a few lines.
+- Numbers that mean something (timings, limits, how long results are saved) are named constants.
+
+**Comments**
+- Say *why* the code is the way it is, in the present tense.
+- History (what changed, in which version) goes in CHANGELOG.md, not in comments.
+- Shared functions get a short note on what goes in and what comes out.
+
+**Consistent**
+- Tabs for indentation, double quotes, semicolons, `const` or `let` (never `var`), `===`.
+- Log through `debug_log.add()`, never bare `console.log`.
+
+**Safe**
+- Text from a site goes into the page only as text (`textContent`), never as HTML. `innerHTML` is only for the script's own fixed markup and icons.
+- Errors are caught where they enter the script (page scans, lookups) and logged.
+- Debug reports never include anything that identifies the user: no query strings, account names, cookies, API keys, or details of other installed software.
+
+**Lean**
+- No code "for later". No abstraction until two places need it.
+- No libraries; use what the browser provides.
+
 ## Guidelines
 
 - **Panel features go in their own section.** The corner panel is built from sections registered with `addPanelSection({id, html, css, init(panel), update(panel)})`. Add a section rather than editing existing ones.
