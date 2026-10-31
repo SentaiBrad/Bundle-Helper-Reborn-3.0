@@ -1,5 +1,10 @@
 # Changelog
 
+## 3.0.33
+
+- Fanatical: games are marked even when the page loads its data before the script starts, for example in a tab opened in the background or on a slower computer. Previously nothing was marked until the page was refreshed.
+- Debug report: shows whether the tab was in the background when the script started, and when the script had to ask Fanatical for a page's data itself.
+
 ## 3.0.32
 
 - Removed the Fanatical bundle-card summaries added in 3.0.26. They never showed reliably on live pages, and Fanatical's cards change shape on hover. The setting is gone too.

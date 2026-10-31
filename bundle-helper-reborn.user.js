@@ -2,7 +2,7 @@
 // @name            Bundle Helper Reborn 3.0
 // @namespace       https://github.com/SentaiBrad/
 // @author          SentaiBrad
-// @version         3.0.32
+// @version         3.0.33
 // @description     Marks the Steam games you own, have wishlisted or ignored on bundle and game store sites (Humble Bundle, Fanatical, Eneba and more), including packs and bundles, with a Steam button on each game.
 // @match           *://dailyindiegame.com/*
 // @match           *://old.reddit.com/*
@@ -224,8 +224,10 @@ Copyright 2026, SentaiBrad
 		steam_fetch: "not fetched on this page (saved data used)",
 		url_at_start: location.href,
 		started_ms: Math.round(performance.now()),   // ms since the page started loading
+		visibility_at_start: document.visibilityState,
 		first_mark_ms: null,
 		fetch_hook: "not used on this site",
+		fanatical_data_fallback: "not needed",
 	};
 
 	// Call whenever an item gets marked; records how long the first one took.
@@ -926,7 +928,7 @@ Copyright 2026, SentaiBrad
 			value("Page", location.origin + location.pathname);
 			value("Page at script start", location.href === debug_state.url_at_start ? "same" : `${debug_state.url_at_start.split(/[?#]/)[0]} (the site changed pages without reloading)`);
 			value("Site handler", debug_state.site_handler || "none (this host has no handler)");
-			value("Window", `${window.innerWidth} x ${window.innerHeight}, ${document.visibilityState}`);
+			value("Window", `${window.innerWidth} x ${window.innerHeight}, ${document.visibilityState} (${debug_state.visibility_at_start} when the script started)`);
 			value("Page language", document.documentElement.lang || "not set");
 
 			section("Settings");
@@ -977,6 +979,7 @@ Copyright 2026, SentaiBrad
 			if (debug_state.site_handler === "fanatical.com") {
 				value("Fanatical fetch hook", debug_state.fetch_hook);
 				value("Fanatical covers with Steam data", `${fanatical_cover_map.size}${fanatical_cover_map.size ? "" : " (0 after the page loaded means the hook isn't seeing Fanatical's data)"}`);
+				value("Fanatical data fallback", debug_state.fanatical_data_fallback);
 			}
 			value("Errors this page", debug_log.count("error"));
 
@@ -1733,6 +1736,26 @@ Copyright 2026, SentaiBrad
 				}
 			`);
 
+			function rememberFanaticalData(json_data) {
+				// Page: https://www.fanatical.com/en/bundle/batman-arkham-collection
+				// AJAX: https://www.fanatical.com/api/products-group/batman-arkham-collection/en
+				for (const bundle of json_data.bundles ?? []) {
+					for (const game of bundle.games ?? []) {
+						rememberFanaticalProduct(game);
+					}
+				}
+
+				// Page: https://www.fanatical.com/en/pick-and-mix/build-your-own-bento-bundle
+				// AJAX: https://www.fanatical.com/api/pick-and-mix/build-your-own-bento-bundle/en
+				for (const game of json_data.products ?? []) {
+					rememberFanaticalProduct(game);
+				}
+
+				// Page: https://www.fanatical.com/en/game/the-last-of-us-part-i
+				// AJAX: https://www.fanatical.com/api/products-group/the-last-of-us-part-i/en
+				rememberFanaticalProduct(json_data);
+			}
+
 			// Intercepting fetch() requests.
 			// With help from:
 			// * https://blog.logrocket.com/intercepting-javascript-fetch-api-requests-responses/
@@ -1754,25 +1777,7 @@ Copyright 2026, SentaiBrad
 							if (!json_data) {
 								return;
 							}
-
-							// Page: https://www.fanatical.com/en/bundle/batman-arkham-collection
-							// AJAX: https://www.fanatical.com/api/products-group/batman-arkham-collection/en
-							for (const bundle of json_data.bundles ?? []) {
-								for (const game of bundle.games ?? []) {
-									rememberFanaticalProduct(game);
-								}
-							}
-
-							// Page: https://www.fanatical.com/en/pick-and-mix/build-your-own-bento-bundle
-							// AJAX: https://www.fanatical.com/api/pick-and-mix/build-your-own-bento-bundle/en
-							for (const game of json_data.products ?? []) {
-								rememberFanaticalProduct(game);
-							}
-
-							// Page: https://www.fanatical.com/en/game/the-last-of-us-part-i
-							// AJAX: https://www.fanatical.com/api/products-group/the-last-of-us-part-i/en
-							rememberFanaticalProduct(json_data);
-
+							rememberFanaticalData(json_data);
 							// Cards may already be on the page when their data arrives.
 							rescanSoon();
 						});
@@ -1781,6 +1786,57 @@ Copyright 2026, SentaiBrad
 				}
 				return response;
 			};
+
+			// The hook misses Fanatical's data when the page asked for it before
+			// the script started, for example in a tab opened in the background or
+			// on a slow computer. Then, once the page has loaded and none of its
+			// product covers has data, the script asks for that page's data itself,
+			// once per page.
+			const product_card_selector = ".bundle-game-card, .bundle-product-card, .NewPickAndMixCard, .PickAndMixCard, .ProductHeader.container";
+			const fallback_requested = new Set();
+			let hook_had_its_chance = false;
+			function startFallbackTimer() {
+				setTimeout(() => {
+					hook_had_its_chance = true;
+					rescanSoon();
+				}, 2000);
+			}
+			if (document.readyState === "complete") {
+				startFallbackTimer();
+			} else {
+				window.addEventListener("load", startFallbackTimer);
+			}
+
+			function pageDataUrl() {
+				const parts = location.pathname.match(/^\/[^/]+\/(bundle|pick-and-mix|game)\/([^/]+)/);
+				if (!parts) return null;
+				const api = parts[1] === "pick-and-mix" ? "pick-and-mix" : "products-group";
+				return `/api/${api}/${parts[2]}/en`;
+			}
+
+			async function requestMissedPageData() {
+				if (!hook_had_its_chance) return;
+				const url = pageDataUrl();
+				if (!url || fallback_requested.has(url)) return;
+				const covers = [...document.querySelectorAll("main img.img-full[srcset]")].filter((img) => img.closest(product_card_selector));
+				if (!covers.length || covers.some((img) => fanatical_cover_map.has(filenameFromURL(img.src)))) return;
+
+				fallback_requested.add(url);
+				const before = fanatical_cover_map.size;
+				try {
+					request_counts.fanatical++;
+					const response = await fetch(url);
+					if (!response.ok) throw new Error(`HTTP ${response.status}`);
+					rememberFanaticalData(await response.json());
+				} catch (error) {
+					debug_state.fanatical_data_fallback = `${url} failed (${error})`;
+					debug_log.add("site", `the hook missed this page's data; requesting ${url} failed (${error})`);
+					return;
+				}
+				debug_state.fanatical_data_fallback = `${url}: ${fanatical_cover_map.size - before} covers with Steam data`;
+				debug_log.add("site", `the hook missed this page's data; requested ${url}: ${fanatical_cover_map.size - before} covers with Steam data`);
+				rescanSoon();
+			}
 
 			// Fanatical rewrites its page all the time, so the whole body is
 			// watched; scans run at most every 2 seconds.
@@ -1830,6 +1886,7 @@ Copyright 2026, SentaiBrad
 					},
 				});
 				markProductsWithoutSteamId();
+				requestMissedPageData().catch(logFailure("Fanatical data fallback"));
 			}
 			const rescanSoon = throttle(scanPage, 500);
 
