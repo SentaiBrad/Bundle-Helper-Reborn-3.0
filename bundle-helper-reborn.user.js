@@ -2,7 +2,7 @@
 // @name            Bundle Helper Reborn 3.0
 // @namespace       https://github.com/SentaiBrad/
 // @author          SentaiBrad
-// @version         3.0.31
+// @version         3.0.32
 // @description     Marks the Steam games you own, have wishlisted or ignored on bundle and game store sites (Humble Bundle, Fanatical, Eneba and more), including packs and bundles, with a Steam button on each game.
 // @match           *://dailyindiegame.com/*
 // @match           *://old.reddit.com/*
@@ -384,7 +384,6 @@ Copyright 2026, SentaiBrad
 		{id: "panel_corner", group: "Panel", label: "Corner", type: "choice", default: "left",
 			choices: [["left", "Left"], ["right", "Right"]]},
 		{id: "card_labels", group: "Marking", label: "Labels on cards", type: "switch", default: true},
-		{id: "bundle_summaries", group: "Marking", label: "Bundle summaries", type: "switch", default: true},
 		{id: "background_tabs", group: "Links", label: "Steam links open in a background tab", type: "switch", default: true},
 		{id: "use_api_key", group: "Steam Web API (optional)", label: "Use my API key", type: "switch", default: false},
 	];
@@ -440,7 +439,6 @@ Copyright 2026, SentaiBrad
 	// Page-wide effects of the settings; the panel applies its own on update.
 	function applySettings() {
 		document.documentElement.classList.toggle("bh_no_card_labels", !getSetting("card_labels"));
-		document.documentElement.classList.toggle("bh_no_bundle_summaries", !getSetting("bundle_summaries"));
 		the_panel?.applyLayout();
 		the_panel?.update();
 	}
@@ -480,10 +478,6 @@ Copyright 2026, SentaiBrad
 	// the colored dot) and a short description.
 	function itemState(match) {
 		if (!match) return {css: "miss", text: "no match"};
-		if (match.type === "bundle") {
-			const summary = bundleSummary(match.members);
-			return {css: "", text: `bundle: ${summary.own} owned, ${summary.wish} wishlisted, ${summary.fresh} new of ${match.members.length}`};
-		}
 		if (match.type === "pack") {
 			const state = packState(match.members);
 			return {css: state.css, text: state.label || `pack of ${match.members.length}, none owned`};
@@ -953,8 +947,8 @@ Copyright 2026, SentaiBrad
 
 			section("Saved lookups");
 			const saved = Object.entries(loadSavedLookups());
-			const kind = (key) => key.startsWith("fanatical-contents:") ? "Fanatical products" : key.startsWith("fanatical-bundle:") ? "Fanatical bundles" : "Titles";
-			for (const name of ["Titles", "Fanatical products", "Fanatical bundles"]) {
+			const kind = (key) => key.startsWith("fanatical-contents:") ? "Fanatical products" : "Titles";
+			for (const name of ["Titles", "Fanatical products"]) {
 				const entries = saved.filter(([key]) => kind(key) === name);
 				value(name, `${entries.filter(([, e]) => e.match).length} found, ${entries.filter(([, e]) => !e.match).length} not found`);
 			}
@@ -983,8 +977,6 @@ Copyright 2026, SentaiBrad
 			if (debug_state.site_handler === "fanatical.com") {
 				value("Fanatical fetch hook", debug_state.fetch_hook);
 				value("Fanatical covers with Steam data", `${fanatical_cover_map.size}${fanatical_cover_map.size ? "" : " (0 after the page loaded means the hook isn't seeing Fanatical's data)"}`);
-				const bundles = fanatical_bundle_stats;
-				value("Fanatical bundle cards", `${bundles.found} found, ${bundles.came_into_view} came into view, ${bundles.shown} with a summary, ${bundles.empty} with no Steam games listed, ${bundles.failed} failed`);
 			}
 			value("Errors this page", debug_log.count("error"));
 
@@ -1233,84 +1225,6 @@ Copyright 2026, SentaiBrad
 		}
 	}
 
-	//////////////////////////////////////////////////
-	// Bundle cards on store listings: a small summary of what's inside
-	// ("OWN 3 · WISH 2 · NEW 13"), with no frame, Steam button or menu.
-
-	// members: [{type: "app" or "sub", id}, ...] for every game in the bundle.
-	function bundleSummary(members) {
-		let own = 0, wish = 0, ignored = 0;
-		for (const member of members) {
-			const css = classForMatch(member);
-			if (css === "bh_owned") own++;
-			else if (css === "bh_wished") wish++;
-			else if (css === "bh_ignored") ignored++;
-		}
-		return {own, wish, ignored, fresh: members.length - own - wish - ignored};
-	}
-
-	// Adds the summary strip to the bottom of `container` (a positioned element,
-	// usually the bundle's cover image).
-	function showBundleSummary(container, members) {
-		if (!members.length || container.querySelector(":scope > bh-summary")) return;
-		const summary = bundleSummary(members);
-		const strip = document.createElement("bh-summary");
-		const parts = [
-			["own", `OWN ${summary.own}`],
-			["wish", `WISH ${summary.wish}`],
-			["fresh", `NEW ${summary.fresh}`],
-		];
-		if (summary.ignored) parts.push(["ignored", `IGN ${summary.ignored}`]);
-		for (const [css, text] of parts) {
-			const part = document.createElement("bh-summary-part");
-			part.className = css;
-			part.textContent = text;
-			strip.append(part);
-		}
-		strip.title = `${members.length} Steam games in this bundle`;
-		container.append(strip);
-		noteMarked();
-	}
-
-	// Runs at most `limit` tasks at once; the rest wait their turn. A task is a
-	// function returning a promise.
-	function requestQueue(limit) {
-		let running = 0;
-		const waiting = [];
-		const next = () => {
-			if (running >= limit || !waiting.length) return;
-			running++;
-			const {task, resolve, reject} = waiting.shift();
-			task().then(resolve, reject).finally(() => {
-				running--;
-				next();
-			});
-		};
-		return (task) => new Promise((resolve, reject) => {
-			waiting.push({task, resolve, reject});
-			next();
-		});
-	}
-
-	// Calls callback(element) once, the first time the element comes near the
-	// visible part of the page.
-	const visibility_margin = "300px";   // start a little before the element scrolls into view
-	const when_visible = new Map();
-	const visibility_observer = new IntersectionObserver((entries) => {
-		for (const entry of entries) {
-			if (!entry.isIntersecting) continue;
-			visibility_observer.unobserve(entry.target);
-			const callback = when_visible.get(entry.target);
-			when_visible.delete(entry.target);
-			callback?.(entry.target);
-		}
-	}, {rootMargin: visibility_margin});
-
-	function whenVisible(element, callback) {
-		when_visible.set(element, callback);
-		visibility_observer.observe(element);
-	}
-
 	// Logs failures of a lookup-and-mark chain instead of losing them.
 	function logFailure(where) {
 		return (error) => debug_log.add("error", `${where}: ${error?.stack ?? error}`);
@@ -1421,46 +1335,6 @@ Copyright 2026, SentaiBrad
 			debug_log.add("lookup", `Fanatical product ${slug}: ${members.length} Steam games inside`);
 			return {result: members.length ? {type: "pack", members} : null, cacheable: true};
 		});
-	}
-
-	// The Steam games in a Fanatical bundle (/bundle/<slug>) or pick-and-mix
-	// (/pick-and-mix/<slug>), saved for a day because bundles change.
-	const bundle_request_limit = 3;      // bundle lookups running at once
-	const bundle_lookup_days = 1;        // bundles change, so their contents are saved for a day
-	const fanatical_bundle_queue = requestQueue(bundle_request_limit);
-	const fanatical_bundle_stats = {found: 0, came_into_view: 0, shown: 0, empty: 0, failed: 0};
-
-	function lookupFanaticalBundle(kind, slug) {
-		const url = kind === "pick-and-mix"
-			? `/api/pick-and-mix/${encodeURIComponent(slug)}/en`
-			: `/api/products-group/${encodeURIComponent(slug)}/en`;
-		return cachedLookup(`fanatical-bundle:${kind}:${slug}`, `Fanatical ${kind} ${slug}`, () => fanatical_bundle_queue(async () => {
-			let data;
-			try {
-				request_counts.fanatical++;
-				const response = await fetch(url);
-				if (!response.ok) throw new Error(`HTTP ${response.status}`);
-				data = await response.json();
-			} catch (error) {
-				debug_log.add("lookup", `Fanatical ${kind} ${slug}: request failed (${error}), will retry next visit`);
-				return {result: null, cacheable: false};
-			}
-			const games = kind === "pick-and-mix"
-				? data?.products ?? []
-				: (data?.bundles ?? []).flatMap((tier) => tier.games ?? []);
-			const members = [];
-			const seen = new Set();
-			for (const game of games) {
-				if (!game.steam?.id) continue;
-				const member = {type: game.steam.type === "sub" ? "sub" : "app", id: Number(game.steam.id)};
-				const key = `${member.type}${member.id}`;
-				if (seen.has(key)) continue;
-				seen.add(key);
-				members.push(member);
-			}
-			debug_log.add("lookup", `Fanatical ${kind} ${slug}: ${members.length} Steam games`);
-			return {result: {type: "pack", members}, cacheable: true};
-		}), bundle_lookup_days);
 	}
 
 	// For a Fanatical product without a Steam ID: its listed contents first,
@@ -1919,34 +1793,6 @@ Copyright 2026, SentaiBrad
 
 			const card_selector = ".bundle-game-card, .bundle-product-card, .card, .HitCard, .header-content-container, .NewPickAndMixCard, .PickAndMixCard, .ProductHeader.container";
 
-			// Bundle and pick-and-mix cards on listing pages get a summary strip.
-			// Their contents are fetched only when a card comes into view.
-			function markBundleCards() {
-				if (!getSetting("bundle_summaries")) return;
-				noteRule("Fanatical bundle cards", document.querySelectorAll(".HitCard a.HitCard__main__cover[href]").length);
-				for (const cover of document.querySelectorAll(".HitCard a.HitCard__main__cover[href]")) {
-					const [, kind, slug] = cover.pathname.match(/\/(bundle|pick-and-mix)\/([^/]+)/) ?? [];
-					if (!slug || cover.classList.contains("bh_already_processed")) continue;
-					cover.classList.add("bh_already_processed");
-					fanatical_bundle_stats.found++;
-					whenVisible(cover, () => {
-						fanatical_bundle_stats.came_into_view++;
-						lookupFanaticalBundle(kind, slug).then((pack) => {
-							recordItem(slug, `Fanatical ${kind} data`, pack ? {type: "bundle", members: pack.members} : null);
-							if (pack?.members.length) {
-								showBundleSummary(cover, pack.members);
-								fanatical_bundle_stats.shown++;
-							} else {
-								fanatical_bundle_stats.empty++;
-							}
-						}).catch((error) => {
-							fanatical_bundle_stats.failed++;
-							logFailure(`Fanatical bundle card ${slug}`)(error);
-						});
-					});
-				}
-			}
-
 			// Products without a Steam ID of their own (collections, 2-in-1s).
 			function markProductsWithoutSteamId() {
 				for (const img of document.querySelectorAll("main img.img-full[srcset]")) {
@@ -1954,6 +1800,7 @@ Copyright 2026, SentaiBrad
 					if (!product || product.steam?.id) continue;
 					const card = img.closest(card_selector);
 					if (!card || card.classList.contains("bh_already_processed")) continue;
+					// Whole bundles (cards linking to a bundle page) aren't products.
 					if (card.querySelector("a.HitCard__main__cover[href*='/bundle/'], a.HitCard__main__cover[href*='/pick-and-mix/']")) continue;
 					card.classList.add("bh_already_processed");
 					resolveFanaticalProduct(product).then((match) => {
@@ -1983,7 +1830,6 @@ Copyright 2026, SentaiBrad
 					},
 				});
 				markProductsWithoutSteamId();
-				markBundleCards();
 			}
 			const rescanSoon = throttle(scanPage, 500);
 
@@ -2412,8 +2258,7 @@ Copyright 2026, SentaiBrad
 				bottom: 0;
 				z-index: 99;
 			}
-			.bh_no_card_labels bh-label,
-			.bh_no_bundle_summaries bh-summary {
+			.bh_no_card_labels bh-label {
 				display: none !important;
 			}
 
@@ -2496,30 +2341,6 @@ Copyright 2026, SentaiBrad
 			bh-label::before {
 				content: var(--bh-label);
 			}
-
-			/* Bundle summary strip: neutral, along the bottom of the bundle's cover. */
-			bh-summary, bh-summary-part {
-				all: initial;
-			}
-			bh-summary {
-				position: absolute;
-				left: 0;
-				right: 0;
-				bottom: 0;
-				z-index: 6;
-				display: flex;
-				justify-content: center;
-				gap: 14px;
-				padding: 5px 8px;
-				background: rgba(23, 29, 37, 0.92);
-				pointer-events: none;
-				font: 700 11px/1.2 sans-serif;
-				letter-spacing: 0.08em;
-			}
-			bh-summary-part         { color: #ddd; font: inherit; letter-spacing: inherit; }
-			bh-summary-part.own     { color: var(--bh-color-owned); }
-			bh-summary-part.wish    { color: var(--bh-color-wished); }
-			bh-summary-part.ignored { color: var(--bh-color-ignored); }
 
 			/* Pack menu: the script's own elements, styled like the corner panel. */
 			bh-pack-menu, bh-pack-head, bh-pack-row, bh-pack-dot, bh-pack-name, bh-pack-tag, .bh_pack_row {

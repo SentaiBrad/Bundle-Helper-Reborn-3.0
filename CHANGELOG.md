@@ -1,5 +1,9 @@
 # Changelog
 
+## 3.0.32
+
+- Removed the Fanatical bundle-card summaries added in 3.0.26. They never showed reliably on live pages, and Fanatical's cards change shape on hover. The setting is gone too.
+
 ## 3.0.31
 
 - The minimized bar fills down to the bottom edge in the panel's colors, with its text above the browser's link and loading text.

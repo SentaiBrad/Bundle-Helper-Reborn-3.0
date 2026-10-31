@@ -23,7 +23,6 @@ Site handlers (in `site_mapping`) only describe their site: which element is a g
 - **`markMatch(element, match, addLink)`** marks an element from a lookup result: a Steam app, a Steam package, or a pack of several games. `addLink(link)` places the Steam button for the site.
 - **`resolveTitle(title)`** looks up one Steam game or package by its title. **`resolveName(name)`** does the same for a store's product name, and checks a "Game One + Game Two" name part by part.
 - **`cachedLookup(key, description, lookup, days)`** saves any lookup's result between visits.
-- **`showBundleSummary(container, members)`**, **`requestQueue(limit)`** and **`whenVisible(element, callback)`** are for bundle cards on store listings: a summary strip, a few requests at a time, and only when the card comes into view.
 
 ### The marking look
 
