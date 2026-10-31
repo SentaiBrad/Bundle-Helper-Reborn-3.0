@@ -1,5 +1,12 @@
 # Changelog
 
+## 3.0.22
+
+- **Packs.** Products that bundle several Steam games (collections, 2-in-1s) are marked by what's inside: OWNED 7/7 when you own all of it, purple OWNED 3/7 when you own some, WISHLIST 2/7 (dashed) when you own none but some are wishlisted.
+- Fanatical: products without a Steam ID of their own are now checked. Their contents come from Fanatical's product data, or the name is looked up on Steam.
+- Fanatical: cards are checked as soon as Fanatical's data arrives, instead of waiting for the page to change.
+- Humble Bundle, Eneba and itch.io: a product named "Game One + Game Two" that isn't a single Steam product is checked game by game.
+
 ## 3.0.21
 
 - Eneba: the label band runs the full width of the card; the wishlist heart stays on top of it.

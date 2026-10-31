@@ -2,7 +2,7 @@
 // @name            Bundle Helper Reborn 3.0
 // @namespace       https://github.com/SentaiBrad/
 // @author          SentaiBrad
-// @version         3.0.21
+// @version         3.0.22
 // @description     Marks owned/ignored/wishlisted games on several sites, and also adds a button to open the steam page for each game.
 // @match           *://dailyindiegame.com/*
 // @match           *://old.reddit.com/*
@@ -851,6 +851,8 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 			value("Marked owned", count(".bh_owned"));
 			value("Marked wishlisted", count(".bh_wished"));
 			value("Marked ignored", count(".bh_ignored"));
+			value("Marked partly owned packs", count(".bh_partial"));
+			value("Marked packs", count(".bh_pack"));
 			value("Steam buttons", count(".bh_steamlink"));
 			value("Processed elements", count(".bh_already_processed"));
 			value("Page watchers", active_mutation_observers.length);
@@ -954,6 +956,65 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 		card.append(document.createElement("bh-label"), document.createElement("bh-frame"));
 	}
 
+	// A pack is several Steam games sold as one product (a store's 2-in-1, a
+	// collection). match: {type: "pack", members: [{type: "app" or "sub", id}, ...]}.
+	// Returns the class and label for the pack as a whole:
+	//   owns all        -> owned, "OWNED 7/7"
+	//   owns some       -> partial, "OWNED 3/7", plus " · WISH 2" if any are wishlisted
+	//   owns none, some wishlisted -> wished (dashed frame), "WISHLIST 2/7"
+	//   all ignored     -> ignored, "IGNORED 7/7"
+	function packState(members) {
+		const total = members.length;
+		const count = (css) => members.filter((member) => classForMatch(member) === css).length;
+		const owned = count("bh_owned");
+		const wished = count("bh_wished");
+		const ignored = count("bh_ignored");
+		if (total && owned === total) return {css: "bh_owned", label: `OWNED ${owned}/${total}`};
+		if (owned) return {css: "bh_partial", label: `OWNED ${owned}/${total}` + (wished ? ` · WISH ${wished}` : "")};
+		if (wished) return {css: "bh_wished", label: `WISHLIST ${wished}/${total}`};
+		if (total && ignored === total) return {css: "bh_ignored", label: `IGNORED ${ignored}/${total}`};
+		return {css: "", label: ""};
+	}
+
+	function classForMatch(match) {
+		if (match.type === "app") return getClassForAppId(match.id);
+		if (match.type === "sub") return getClassForSubId(match.id);
+		return "";
+	}
+
+	const marking_classes = ["bh_owned", "bh_wished", "bh_ignored", "bh_partial", "bh_pack"];
+
+	// Marks an element from a lookup result (a Steam game, package or pack) and
+	// adds a Steam button through addLink(link), which places it for the site.
+	// Packs have no single Steam page, so they get no button.
+	function markMatch(element, match, addLink) {
+		element.classList.remove(...marking_classes);
+		element.style.removeProperty("--bh-label");
+		let css;
+		if (match.type === "pack") {
+			const state = packState(match.members);
+			css = state.css;
+			if (css) {
+				element.classList.add("bh_pack");
+				element.style.setProperty("--bh-label", JSON.stringify(state.label));
+			}
+		} else {
+			css = classForMatch(match);
+		}
+		if (css) {
+			element.classList.add(css);
+			noteMarked();
+		}
+		if (match.type !== "pack" && addLink && !element.querySelector(".bh_steamlink")) {
+			addLink(createSteamLink(match.type, match.id));
+		}
+	}
+
+	// Logs failures of a lookup-and-mark chain instead of losing them.
+	function logFailure(where) {
+		return (error) => debug_log.add("error", `${where}: ${error?.stack ?? error}`);
+	}
+
 	function markElements({
 		rootSelector = "body",
 		itemSelector = "a[href*='store.steampowered.com/']",
@@ -1028,8 +1089,49 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 
 	// There are no visible ids in the DOM on Fanatical.
 	// Let's use something unique as the key: the cover image filenames.
-	// The values are the "steam" objects from Fanatical API.
+	// The values are {steam, name, slug} from Fanatical's own product data.
 	const fanatical_cover_map = new Map();
+
+	function rememberFanaticalProduct(product) {
+		if (product.cover && product.steam) {
+			fanatical_cover_map.set(product.cover, {steam: product.steam, name: product.name, slug: product.slug});
+		}
+	}
+
+	// Fanatical sells some products with no Steam ID of their own (collections,
+	// 2-in-1s). Its product data can list the games inside, each with a Steam ID.
+	// Resolves to a pack, or null when the product lists no Steam games.
+	function lookupFanaticalContents(slug) {
+		return cachedLookup(`fanatical:${slug}`, `Fanatical product ${slug}`, async () => {
+			let data;
+			try {
+				const response = await fetch(`/api/products-group/${encodeURIComponent(slug)}/en`);
+				if (!response.ok) throw new Error(`HTTP ${response.status}`);
+				data = await response.json();
+			} catch (error) {
+				debug_log.add("lookup", `Fanatical product ${slug}: request failed (${error}), will retry next visit`);
+				return {result: null, cacheable: false};
+			}
+			const members = [];
+			for (const bundle of data?.bundles ?? []) {
+				for (const game of bundle.games ?? []) {
+					if (game.steam?.id) members.push({type: game.steam.type === "sub" ? "sub" : "app", id: Number(game.steam.id)});
+				}
+			}
+			debug_log.add("lookup", `Fanatical product ${slug}: ${members.length} Steam games inside`);
+			return {result: members.length ? {type: "pack", members} : null, cacheable: true};
+		});
+	}
+
+	// For a Fanatical product without a Steam ID: its listed contents first,
+	// then a lookup by name.
+	async function resolveFanaticalProduct(product) {
+		if (product.slug) {
+			const pack = await lookupFanaticalContents(product.slug);
+			if (pack) return pack;
+		}
+		return product.name ? resolveName(product.name) : null;
+	}
 
 	// For sites that embed Steam CDN image URLs directly in <img> tags.
 	function markBySteamImageUrl(rootSelector, closestSelector) {
@@ -1274,25 +1376,54 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 	}
 
 	// Resolves to {type: "app"|"sub", id} or null.
-	function resolveTitle(title) {
-		const key = normalizeTitle(spellGreek(title)) || title.trim().toLowerCase();
-		if (!key) return Promise.resolve(null);
+	// Runs a lookup once and saves its result between visits (matches for 30
+	// days, misses for 1 day). lookup() resolves to {result, cacheable}; results
+	// from failed requests aren't saved. Identical lookups running at the same
+	// time share one request.
+	function cachedLookup(key, description, lookup) {
 		const cache = loadTitleCache();
 		if (cache[key]) {
-			debug_log.add("lookup", JSON.stringify(title) + " saved result: " + (cache[key].match ? `${cache[key].match.type} ${cache[key].match.id}` : "miss"));
+			debug_log.add("lookup", `${description} saved result: ${describeMatch(cache[key].match)}`);
 			return Promise.resolve(cache[key].match);
 		}
 		if (pending_title_lookups.has(key)) return pending_title_lookups.get(key);
 
-		const lookup = lookupTitle(title).then(({result, cacheable}) => {
+		const running = lookup().then(({result, cacheable}) => {
 			if (cacheable) {
 				cache[key] = {match: result, time: getUnixTimestamp()};
 				saveTitleCache();
 			}
 			return result;
 		}).finally(() => pending_title_lookups.delete(key));
-		pending_title_lookups.set(key, lookup);
-		return lookup;
+		pending_title_lookups.set(key, running);
+		return running;
+	}
+
+	function describeMatch(match) {
+		if (!match) return "miss";
+		if (match.type === "pack") return `pack of ${match.members.length}`;
+		return `${match.type} ${match.id}`;
+	}
+
+	// Looks up one Steam game or package by its exact title.
+	function resolveTitle(title) {
+		const key = normalizeTitle(spellGreek(title)) || title.trim().toLowerCase();
+		if (!key) return Promise.resolve(null);
+		return cachedLookup(key, JSON.stringify(title), () => lookupTitle(title));
+	}
+
+	// Looks up a store's product name. When the name isn't a Steam game or
+	// package but joins several games with " + " ("Game One + Game Two"), each
+	// part is looked up and the result is a pack. Parts that aren't found count
+	// as not owned.
+	async function resolveName(name) {
+		const match = await resolveTitle(name);
+		if (match) return match;
+		const parts = name.split(/\s+\+\s+/).map((part) => part.trim()).filter(Boolean);
+		if (parts.length < 2) return null;
+		const members = await Promise.all(parts.map((part) => resolveTitle(part)));
+		if (!members.some(Boolean)) return null;
+		return {type: "pack", members: members.map((m) => m ?? {type: "unknown", id: 0})};
 	}
 
 	const site_mapping = {
@@ -1400,25 +1531,22 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 							// AJAX: https://www.fanatical.com/api/products-group/batman-arkham-collection/en
 							for (const bundle of json_data.bundles ?? []) {
 								for (const game of bundle.games ?? []) {
-									if (game.cover && game.steam) {
-										fanatical_cover_map.set(game.cover, game.steam);
-									}
+									rememberFanaticalProduct(game);
 								}
 							}
 
 							// Page: https://www.fanatical.com/en/pick-and-mix/build-your-own-bento-bundle
 							// AJAX: https://www.fanatical.com/api/pick-and-mix/build-your-own-bento-bundle/en
 							for (const game of json_data.products ?? []) {
-								if (game.cover && game.steam) {
-									fanatical_cover_map.set(game.cover, game.steam);
-								}
+								rememberFanaticalProduct(game);
 							}
 
 							// Page: https://www.fanatical.com/en/game/the-last-of-us-part-i
 							// AJAX: https://www.fanatical.com/api/products-group/the-last-of-us-part-i/en
-							if (json_data.cover && json_data.steam) {
-								fanatical_cover_map.set(json_data.cover, json_data.steam);
-							}
+							rememberFanaticalProduct(json_data);
+
+							// Cards may already be on the page when their data arrives.
+							rescanSoon();
 						});
 						return p;
 					}
@@ -1430,25 +1558,46 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 			// performance, but I can't find any better way, given the website
 			// rewrites the DOM at will. At least, I'm increasing the debouncing
 			// time to at least 2 seconds.
-			debouncedMutationObserverSelectorAll("body", function() {
+			const card_selector = ".bundle-game-card, .bundle-product-card, .card, .HitCard, .header-content-container, .NewPickAndMixCard, .PickAndMixCard, .ProductHeader.container";
+
+			// Products without a Steam ID of their own (collections, 2-in-1s).
+			function markProductsWithoutSteamId() {
+				for (const img of document.querySelectorAll("main img.img-full[srcset]")) {
+					const product = fanatical_cover_map.get(filenameFromURL(img.src));
+					if (!product || product.steam?.id) continue;
+					const card = img.closest(card_selector);
+					if (!card || card.classList.contains("bh_already_processed")) continue;
+					card.classList.add("bh_already_processed");
+					resolveFanaticalProduct(product).then((match) => {
+						if (!match) return;
+						makeCard(card);
+						markMatch(card, match, (link) => card.insertAdjacentElement("beforeend", link));
+					}).catch(logFailure(`Fanatical product ${JSON.stringify(product.name)}`));
+				}
+			}
+
+			function scanPage() {
 				markElements({
 					rootSelector: "main",
 					itemSelector: "img.img-full[srcset]",
 					itemStringExtractor: (img) => {
-						const filename = filenameFromURL(img.src);
-						const steam = fanatical_cover_map.get(filename);
-						if (!steam) {
+						const product = fanatical_cover_map.get(filenameFromURL(img.src));
+						if (!product?.steam?.id) {
 							return "";
 						}
-						return `/${steam.type}/${steam.id}`;
+						return `/${product.steam.type}/${product.steam.id}`;
 					},
-					closestSelector: ".bundle-game-card, .bundle-product-card, .card, .HitCard, .header-content-container, .NewPickAndMixCard, .PickAndMixCard, .ProductHeader.container",
+					closestSelector: card_selector,
 					addSteamLinkFunc: (item, closest, link) => {
 						makeCard(closest);
 						closest.insertAdjacentElement("beforeend", link);
 					},
 				});
-			}, 2000);
+				markProductsWithoutSteamId();
+			}
+			const rescanSoon = throttle(scanPage, 500);
+
+			debouncedMutationObserverSelectorAll("body", scanPage, 2000);
 
 			// We don't even try matching the dropdown results from the top bar.
 			// It's not reliable and doesn't work properly.
@@ -1667,17 +1816,12 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 					if (!title_elem) continue;
 					const title = ([...title_elem.childNodes].filter(n => n.nodeType === Node.TEXT_NODE).map(n => n.textContent.trim()).join("")).trim();
 					if (!title) debug_log.add("error", `Humble tile title came out empty; tile text is ${JSON.stringify(title_elem.textContent.trim().slice(0, 80))}`);
-					resolveTitle(title).then((match) => {
+					resolveName(title).then((match) => {
 						if (!match) return;
-						tile.classList.remove("bh_owned", "bh_wished", "bh_ignored");
-						const cssClass = match.type === "sub" ? getClassForSubId(match.id) : getClassForAppId(match.id);
-						if (cssClass) { tile.classList.add(cssClass); noteMarked(); }
 						const img_container = tile.querySelector(".img-container");
 						if (img_container) makeCard(img_container);
-						if (img_container && !img_container.querySelector(".bh_steamlink")) {
-							img_container.appendChild(createSteamLink(match.type, match.id));
-						}
-					});
+						markMatch(tile, match, (link) => img_container?.appendChild(link));
+					}).catch(logFailure(`Humble tile ${JSON.stringify(title)}`));
 				}
 			}
 
@@ -1710,21 +1854,18 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 					if (!title_elem) continue;
 					const title = ([...title_elem.childNodes].filter(n => n.nodeType === Node.TEXT_NODE).map(n => n.textContent.trim()).join("")).trim();
 					if (!title) debug_log.add("error", `itch.io tile title came out empty; tile text is ${JSON.stringify(title_elem.textContent.trim().slice(0, 80))}`);
-					resolveTitle(title).then((match) => {
+					resolveName(title).then((match) => {
 						if (!match) return;
-						tile.classList.remove("bh_owned", "bh_wished", "bh_ignored");
-						const cssClass = match.type === "sub" ? getClassForSubId(match.id) : getClassForAppId(match.id);
-						if (cssClass) { tile.classList.add(cssClass); noteMarked(); }
-						const thumb = tile.querySelector("a.game_thumb");
-						if (thumb && !thumb.querySelector(".bh_steamlink")) {
-							const link = createSteamLink(match.type, match.id);
+						markMatch(tile, match, (link) => {
+							const thumb = tile.querySelector("a.game_thumb");
+							if (!thumb) return;
 							link.style.position = "absolute";
 							link.style.bottom = "4px";
 							link.style.right = "4px";
 							link.style.zIndex = "10";
 							thumb.appendChild(link);
-						}
-					});
+						});
+					}).catch(logFailure(`itch.io tile ${JSON.stringify(title)}`));
 				}
 			}
 
@@ -1812,13 +1953,6 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 				return best;
 			}
 
-			function markEneba(element, match, add_link) {
-				element.classList.remove("bh_owned", "bh_wished", "bh_ignored");
-				const cssClass = match.type === "sub" ? getClassForSubId(match.id) : getClassForAppId(match.id);
-				if (cssClass) { element.classList.add(cssClass); noteMarked(); }
-				if (!element.querySelector(":scope > .bh_steamlink")) add_link(createSteamLink(match.type, match.id));
-			}
-
 			function processEneba() {
 				// Product cards (store, search, home page rows)
 				for (const link of document.querySelectorAll("a[title][href]")) {
@@ -1829,9 +1963,9 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 					if (!card || card.classList.contains("bh_already_processed")) continue;
 					card.classList.add("bh_already_processed", "bh_eneba_card");
 					makeCard(card);
-					resolveTitle(name).then((match) => {
-						if (match) markEneba(card, match, (a) => card.appendChild(a));
-					});
+					resolveName(name).then((match) => {
+						if (match) markMatch(card, match, (link) => card.appendChild(link));
+					}).catch(logFailure(`Eneba card ${JSON.stringify(name)}`));
 				}
 				// Product page heading
 				const heading = document.querySelector("h1:not(.bh_already_processed)");
@@ -1839,9 +1973,9 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 					const name = enebaGameName(heading.textContent.trim());
 					if (name) {
 						heading.classList.add("bh_already_processed", "bh_eneba_heading");
-						resolveTitle(name).then((match) => {
-							if (match) markEneba(heading, match, (a) => heading.appendChild(a));
-						});
+						resolveName(name).then((match) => {
+							if (match) markMatch(heading, match, (link) => heading.appendChild(link));
+						}).catch(logFailure(`Eneba heading ${JSON.stringify(name)}`));
 					}
 				}
 			}
@@ -1890,6 +2024,7 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 				--bh-color-owned: #22e07a;
 				--bh-color-wished: #3db8ff;
 				--bh-color-ignored: #9a9a9a;
+				--bh-color-partial: #c792ff;
 				--bh-outline-width: 4px;
 				--bh-label-text-color: #0b0b0b;
 				--bh-steamlink-size: 24px;
@@ -1897,9 +2032,13 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 			.bh_owned   { --bh-color: var(--bh-color-owned);   --bh-bgcolor: var(--bh-color-owned);   --bh-outline-style: solid;  --bh-label: "OWNED"; }
 			.bh_wished  { --bh-color: var(--bh-color-wished);  --bh-bgcolor: var(--bh-color-wished);  --bh-outline-style: solid;  --bh-label: "WISHLIST"; }
 			.bh_ignored { --bh-color: var(--bh-color-ignored); --bh-bgcolor: var(--bh-color-ignored); --bh-outline-style: dashed; --bh-label: "IGNORED"; }
+			.bh_partial { --bh-color: var(--bh-color-partial); --bh-bgcolor: var(--bh-color-partial); --bh-outline-style: solid;  --bh-label: "PARTIAL"; }
+			/* A pack with wishlisted games but none owned. */
+			.bh_pack.bh_wished { --bh-outline-style: dashed; }
 			.bh_basic_style .bh_owned,
 			.bh_basic_style .bh_wished,
-			.bh_basic_style .bh_ignored {
+			.bh_basic_style .bh_ignored,
+			.bh_basic_style .bh_partial {
 				outline: var(--bh-outline-width) var(--bh-outline-style) var(--bh-color) !important;
 				outline-offset: calc(-1 * var(--bh-outline-width));
 			}
@@ -1915,15 +2054,16 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 			}
 			.bh_basic_style .bh_card.bh_owned,  .bh_basic_style .bh_owned .bh_card,
 			.bh_basic_style .bh_card.bh_wished, .bh_basic_style .bh_wished .bh_card,
-			.bh_basic_style .bh_card.bh_ignored, .bh_basic_style .bh_ignored .bh_card {
+			.bh_basic_style .bh_card.bh_ignored, .bh_basic_style .bh_ignored .bh_card,
+			.bh_basic_style .bh_card.bh_partial, .bh_basic_style .bh_partial .bh_card {
 				outline: none !important;
 			}
 			bh-frame, bh-label {
 				all: initial;
 				display: none;
 			}
-			.bh_owned bh-frame, .bh_wished bh-frame, .bh_ignored bh-frame,
-			.bh_owned bh-label, .bh_wished bh-label, .bh_ignored bh-label {
+			.bh_owned bh-frame, .bh_wished bh-frame, .bh_ignored bh-frame, .bh_partial bh-frame,
+			.bh_owned bh-label, .bh_wished bh-label, .bh_ignored bh-label, .bh_partial bh-label {
 				display: block;
 			}
 			bh-frame, bh-label {
