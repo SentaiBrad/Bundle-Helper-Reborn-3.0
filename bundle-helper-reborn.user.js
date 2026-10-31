@@ -2,7 +2,7 @@
 // @name            Bundle Helper Reborn 3.0
 // @namespace       https://github.com/SentaiBrad/
 // @author          SentaiBrad
-// @version         3.0.25
+// @version         3.0.26
 // @description     Marks owned/ignored/wishlisted games on several sites, and also adds a button to open the steam page for each game.
 // @match           *://dailyindiegame.com/*
 // @match           *://old.reddit.com/*
@@ -1113,6 +1113,83 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 		}
 	}
 
+	//////////////////////////////////////////////////
+	// Bundle cards on store listings: a small summary of what's inside
+	// ("OWN 3 · WISH 2 · NEW 13"), with no frame, Steam button or menu.
+
+	// members: [{type: "app" or "sub", id}, ...] for every game in the bundle.
+	function bundleSummary(members) {
+		let own = 0, wish = 0, ignored = 0;
+		for (const member of members) {
+			const css = classForMatch(member);
+			if (css === "bh_owned") own++;
+			else if (css === "bh_wished") wish++;
+			else if (css === "bh_ignored") ignored++;
+		}
+		return {own, wish, ignored, fresh: members.length - own - wish - ignored};
+	}
+
+	// Adds the summary strip to the bottom of `container` (a positioned element,
+	// usually the bundle's cover image).
+	function showBundleSummary(container, members) {
+		if (!members.length || container.querySelector(":scope > bh-summary")) return;
+		const summary = bundleSummary(members);
+		const strip = document.createElement("bh-summary");
+		const parts = [
+			["own", `OWN ${summary.own}`],
+			["wish", `WISH ${summary.wish}`],
+			["fresh", `NEW ${summary.fresh}`],
+		];
+		if (summary.ignored) parts.push(["ignored", `IGN ${summary.ignored}`]);
+		for (const [css, text] of parts) {
+			const part = document.createElement("bh-summary-part");
+			part.className = css;
+			part.textContent = text;
+			strip.append(part);
+		}
+		strip.title = `${members.length} Steam games in this bundle`;
+		container.append(strip);
+		noteMarked();
+	}
+
+	// Runs at most `limit` tasks at once; the rest wait their turn. A task is a
+	// function returning a promise.
+	function requestQueue(limit) {
+		let running = 0;
+		const waiting = [];
+		const next = () => {
+			if (running >= limit || !waiting.length) return;
+			running++;
+			const {task, resolve, reject} = waiting.shift();
+			task().then(resolve, reject).finally(() => {
+				running--;
+				next();
+			});
+		};
+		return (task) => new Promise((resolve, reject) => {
+			waiting.push({task, resolve, reject});
+			next();
+		});
+	}
+
+	// Calls callback(element) once, the first time the element comes near the
+	// visible part of the page.
+	const when_visible = new Map();
+	const visibility_observer = new IntersectionObserver((entries) => {
+		for (const entry of entries) {
+			if (!entry.isIntersecting) continue;
+			visibility_observer.unobserve(entry.target);
+			const callback = when_visible.get(entry.target);
+			when_visible.delete(entry.target);
+			callback?.(entry.target);
+		}
+	}, {rootMargin: "300px"});
+
+	function whenVisible(element, callback) {
+		when_visible.set(element, callback);
+		visibility_observer.observe(element);
+	}
+
 	// Logs failures of a lookup-and-mark chain instead of losing them.
 	function logFailure(where) {
 		return (error) => debug_log.add("error", `${where}: ${error?.stack ?? error}`);
@@ -1226,6 +1303,42 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 			debug_log.add("lookup", `Fanatical product ${slug}: ${members.length} Steam games inside`);
 			return {result: members.length ? {type: "pack", members} : null, cacheable: true};
 		});
+	}
+
+	// The Steam games in a Fanatical bundle (/bundle/<slug>) or pick-and-mix
+	// (/pick-and-mix/<slug>), saved for a day because bundles change.
+	const fanatical_bundle_queue = requestQueue(3);
+
+	function lookupFanaticalBundle(kind, slug) {
+		const url = kind === "pick-and-mix"
+			? `/api/pick-and-mix/${encodeURIComponent(slug)}/en`
+			: `/api/products-group/${encodeURIComponent(slug)}/en`;
+		return cachedLookup(`fanatical-bundle:${kind}:${slug}`, `Fanatical ${kind} ${slug}`, () => fanatical_bundle_queue(async () => {
+			let data;
+			try {
+				const response = await fetch(url);
+				if (!response.ok) throw new Error(`HTTP ${response.status}`);
+				data = await response.json();
+			} catch (error) {
+				debug_log.add("lookup", `Fanatical ${kind} ${slug}: request failed (${error}), will retry next visit`);
+				return {result: null, cacheable: false};
+			}
+			const games = kind === "pick-and-mix"
+				? data?.products ?? []
+				: (data?.bundles ?? []).flatMap((tier) => tier.games ?? []);
+			const members = [];
+			const seen = new Set();
+			for (const game of games) {
+				if (!game.steam?.id) continue;
+				const member = {type: game.steam.type === "sub" ? "sub" : "app", id: Number(game.steam.id)};
+				const key = `${member.type}${member.id}`;
+				if (seen.has(key)) continue;
+				seen.add(key);
+				members.push(member);
+			}
+			debug_log.add("lookup", `Fanatical ${kind} ${slug}: ${members.length} Steam games`);
+			return {result: {type: "pack", members}, cacheable: true};
+		}), 1);
 	}
 
 	// For a Fanatical product without a Steam ID: its listed contents first,
@@ -1349,7 +1462,7 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 		title_cache = (stored && stored.version === title_cache_version && stored.entries) ? stored.entries : {};
 		const now = getUnixTimestamp();
 		for (const [key, entry] of Object.entries(title_cache)) {
-			const max_age = (entry?.match ? title_cache_match_days : title_cache_miss_days) * 86400;
+			const max_age = (entry?.days ?? (entry?.match ? title_cache_match_days : title_cache_miss_days)) * 86400;
 			if (!entry || !(now - entry.time <= max_age)) delete title_cache[key];
 		}
 		return title_cache;
@@ -1485,10 +1598,10 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 
 	// Resolves to {type: "app"|"sub", id} or null.
 	// Runs a lookup once and saves its result between visits (matches for 30
-	// days, misses for 1 day). lookup() resolves to {result, cacheable}; results
-	// from failed requests aren't saved. Identical lookups running at the same
-	// time share one request.
-	function cachedLookup(key, description, lookup) {
+	// days, misses for 1 day, or `days` when given). lookup() resolves to
+	// {result, cacheable}; results from failed requests aren't saved. Identical
+	// lookups running at the same time share one request.
+	function cachedLookup(key, description, lookup, days) {
 		const cache = loadTitleCache();
 		if (cache[key]) {
 			debug_log.add("lookup", `${description} saved result: ${describeMatch(cache[key].match)}`);
@@ -1499,6 +1612,7 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 		const running = lookup().then(({result, cacheable}) => {
 			if (cacheable) {
 				cache[key] = {match: result, time: getUnixTimestamp()};
+				if (days) cache[key].days = days;
 				saveTitleCache();
 			}
 			return result;
@@ -1687,6 +1801,21 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 
 			const card_selector = ".bundle-game-card, .bundle-product-card, .card, .HitCard, .header-content-container, .NewPickAndMixCard, .PickAndMixCard, .ProductHeader.container";
 
+			// Bundle and pick-and-mix cards on listing pages get a summary strip.
+			// Their contents are fetched only when a card comes into view.
+			function markBundleCards() {
+				for (const cover of document.querySelectorAll(".HitCard a.HitCard__main__cover[href]")) {
+					const [, kind, slug] = cover.pathname.match(/\/(bundle|pick-and-mix)\/([^/]+)/) ?? [];
+					if (!slug || cover.classList.contains("bh_already_processed")) continue;
+					cover.classList.add("bh_already_processed");
+					whenVisible(cover, () => {
+						lookupFanaticalBundle(kind, slug).then((pack) => {
+							if (pack) showBundleSummary(cover, pack.members);
+						}).catch(logFailure(`Fanatical bundle card ${slug}`));
+					});
+				}
+			}
+
 			// Products without a Steam ID of their own (collections, 2-in-1s).
 			function markProductsWithoutSteamId() {
 				for (const img of document.querySelectorAll("main img.img-full[srcset]")) {
@@ -1694,6 +1823,7 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 					if (!product || product.steam?.id) continue;
 					const card = img.closest(card_selector);
 					if (!card || card.classList.contains("bh_already_processed")) continue;
+					if (card.querySelector("a.HitCard__main__cover[href*='/bundle/'], a.HitCard__main__cover[href*='/pick-and-mix/']")) continue;
 					card.classList.add("bh_already_processed");
 					resolveFanaticalProduct(product).then((match) => {
 						if (!match) return;
@@ -1721,6 +1851,7 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 					},
 				});
 				markProductsWithoutSteamId();
+				markBundleCards();
 			}
 			const rescanSoon = throttle(scanPage, 500);
 
@@ -2222,6 +2353,30 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 			bh-label::before {
 				content: var(--bh-label);
 			}
+
+			/* Bundle summary strip: neutral, along the bottom of the bundle's cover. */
+			bh-summary, bh-summary-part {
+				all: initial;
+			}
+			bh-summary {
+				position: absolute;
+				left: 0;
+				right: 0;
+				bottom: 0;
+				z-index: 6;
+				display: flex;
+				justify-content: center;
+				gap: 14px;
+				padding: 5px 8px;
+				background: rgba(23, 29, 37, 0.92);
+				pointer-events: none;
+				font: 700 11px/1.2 sans-serif;
+				letter-spacing: 0.08em;
+			}
+			bh-summary-part         { color: #ddd; font: inherit; letter-spacing: inherit; }
+			bh-summary-part.own     { color: var(--bh-color-owned); }
+			bh-summary-part.wish    { color: var(--bh-color-wished); }
+			bh-summary-part.ignored { color: var(--bh-color-ignored); }
 
 			/* Pack menu: the script's own elements, styled like the corner panel. */
 			bh-pack-menu, bh-pack-head, bh-pack-row, bh-pack-dot, bh-pack-name, bh-pack-tag, .bh_pack_row {

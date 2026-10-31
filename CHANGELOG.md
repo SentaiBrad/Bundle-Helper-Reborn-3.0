@@ -1,5 +1,9 @@
 # Changelog
 
+## 3.0.26
+
+- Fanatical: bundle cards on listing pages show a summary of the Steam games inside: how many you own, have wishlisted, and don't have yet. Each bundle is checked once a day, only when its card comes into view.
+
 ## 3.0.25
 
 - **Pack menu.** A pack's Steam button opens a list of the games inside, each showing whether you own it, have it wishlisted or ignored. Clicking a game opens its Steam page in a background tab; the menu stays open. Click outside it or press Esc to close.
