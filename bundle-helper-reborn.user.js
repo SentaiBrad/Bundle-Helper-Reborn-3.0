@@ -2,7 +2,7 @@
 // @name            Bundle Helper Reborn 3.0
 // @namespace       https://github.com/SentaiBrad/
 // @author          SentaiBrad
-// @version         3.0.22
+// @version         3.0.23
 // @description     Marks owned/ignored/wishlisted games on several sites, and also adds a button to open the steam page for each game.
 // @match           *://dailyindiegame.com/*
 // @match           *://old.reddit.com/*
@@ -1494,14 +1494,25 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 		"fanatical.com": function() {
 			document.body.classList.add("bh_basic_style");
 			GM_addStyle(`
-				.bh_steamlink {
-					position: absolute;
+				/* Steam button: bottom-right of the cover image. The !important
+				   rules beat Fanatical's ".faux-block-link a { position: relative }",
+				   which would put the button back in the card's flow and make
+				   marked cards taller than unmarked ones. */
+				.cover-container > .bh_steamlink {
+					position: absolute !important;
+					right: 4px;
+					bottom: 4px;
+					z-index: 7 !important;
+					line-height: 0;
+				}
+				.bh_card > .bh_steamlink {
+					position: absolute !important;
 					bottom: 0;
 					left: calc( 50% - var(--bh-steamlink-size) / 2 );
+					z-index: 7 !important;
 				}
 				.ProductHeader.container .bh_steamlink {
-					position: static;
-					bottom: auto;
+					position: static !important;
 				}
 			`);
 
@@ -1558,6 +1569,13 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 			// performance, but I can't find any better way, given the website
 			// rewrites the DOM at will. At least, I'm increasing the debouncing
 			// time to at least 2 seconds.
+			// On the cover image when the card has one; product page headers keep
+			// the button inline.
+			function placeSteamLink(card, link) {
+				const cover = card.matches(".ProductHeader.container") ? null : card.querySelector(".cover-container");
+				(cover ?? card).insertAdjacentElement("beforeend", link);
+			}
+
 			const card_selector = ".bundle-game-card, .bundle-product-card, .card, .HitCard, .header-content-container, .NewPickAndMixCard, .PickAndMixCard, .ProductHeader.container";
 
 			// Products without a Steam ID of their own (collections, 2-in-1s).
@@ -1571,7 +1589,7 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 					resolveFanaticalProduct(product).then((match) => {
 						if (!match) return;
 						makeCard(card);
-						markMatch(card, match, (link) => card.insertAdjacentElement("beforeend", link));
+						markMatch(card, match, (link) => placeSteamLink(card, link));
 					}).catch(logFailure(`Fanatical product ${JSON.stringify(product.name)}`));
 				}
 			}
@@ -1590,7 +1608,7 @@ https://gist.github.com/SentaiBrad/076c6966ddfe4c328e90ccc8396720f7
 					closestSelector: card_selector,
 					addSteamLinkFunc: (item, closest, link) => {
 						makeCard(closest);
-						closest.insertAdjacentElement("beforeend", link);
+						placeSteamLink(closest, link);
 					},
 				});
 				markProductsWithoutSteamId();

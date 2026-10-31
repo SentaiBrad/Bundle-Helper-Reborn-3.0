@@ -1,5 +1,9 @@
 # Changelog
 
+## 3.0.23
+
+- Fanatical: the Steam button sits on the bottom-right of the cover image, and marked cards are no longer taller than the rest (packs and unmarked cards looked pushed down).
+
 ## 3.0.22
 
 - **Packs.** Products that bundle several Steam games (collections, 2-in-1s) are marked by what's inside: OWNED 7/7 when you own all of it, purple OWNED 3/7 when you own some, WISHLIST 2/7 (dashed) when you own none but some are wishlisted.
