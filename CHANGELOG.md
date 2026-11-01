@@ -1,5 +1,9 @@
 # Changelog
 
+## 3.0.39
+
+- Internal: sites that only have a game's name (Humble Bundle, itch.io, Eneba) share one helper to look it up, list it in the debug view and mark it. Marking doesn't change; a failed lookup's log line now names where the name came from.
+
 ## 3.0.38
 
 - A product with no Steam ID of its own but with a list of its DLC (Fanatical's Resident Evil 6 Complete) is marked as the game that DLC belongs to, read from Steam's own DLC details. In the RE6 Complete & RE7 Double Pack, RE6 Complete is now found, so the pack counts both games.

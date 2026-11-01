@@ -33,7 +33,7 @@ Site handlers (in `site_mapping`) only describe their site: which element is a g
 
 - **`makeCard(element)`** turns a card-style item into a marked card: the frame and label band are the script's own elements (`bh-frame`, `bh-label`), so the site's styles can't distort them.
 - **`markMatch(element, match, addLink)`** marks an element from a lookup result: a Steam app, a Steam package, or a pack of several games. `addLink(link)` places the Steam button for the site.
-- **`resolveTitle(title)`** looks up one Steam game or package by its title. **`resolveName(name)`** does the same for a store's product name, and checks a "Game One + Game Two" name part by part.
+- **`resolveTitle(title)`** looks up one Steam game or package by its title. **`resolveName(name)`** does the same for a store's product name, and checks a "Game One + Game Two" name part by part. **`lookUpAndMark(name, source, mark)`** is the usual way for a site that only has a name: it looks the name up, lists it in the debug view, and calls `mark(match)` to mark it the site's way.
 - **`resolveProduct(product)`** finds what a store product is on Steam: its own Steam ID (`checkStoreSteamId` checks package IDs a store gives), else the pack its contents make (`packFromContents`), else the game its DLC belongs to (`baseGameOfDlc`), else its name. A site describes a product as `{name, steam, contents, dlc}`; see "Store products and packs" in the script.
 - **`cachedLookup(key, description, lookup, days)`** saves any lookup's result between visits.
 

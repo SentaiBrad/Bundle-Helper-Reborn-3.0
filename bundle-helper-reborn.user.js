@@ -2,7 +2,7 @@
 // @name            Bundle Helper Reborn 3.0
 // @namespace       https://github.com/SentaiBrad/
 // @author          SentaiBrad
-// @version         3.0.38
+// @version         3.0.39
 // @description     Marks the Steam games you own, have wishlisted or ignored on bundle and game store sites (Humble Bundle, Fanatical, Eneba and more), including packs and bundles, with a Steam button on each game.
 // @match           *://dailyindiegame.com/*
 // @match           *://old.reddit.com/*
@@ -793,6 +793,16 @@ Copyright 2026, SentaiBrad
 		return {type: "pack", members};
 	}
 
+	// For sites that only have a name: looks it up on Steam, lists it in the
+	// debug view with `source` saying where the name came from, and when it's
+	// found, calls mark(match) to mark it the site's way. Failures are logged.
+	function lookUpAndMark(name, source, mark) {
+		resolveName(name).then((match) => {
+			recordItem(name, source, match);
+			if (match) mark(match);
+		}).catch(logFailure(`${source}: ${JSON.stringify(name)}`));
+	}
+
 	//////////////////////////////////////////////////
 	// Store products and packs
 	//
@@ -1382,10 +1392,9 @@ Copyright 2026, SentaiBrad
 					if (!card || card.classList.contains("bh_already_processed")) continue;
 					card.classList.add("bh_already_processed", "bh_eneba_card");
 					makeCard(card);
-					resolveName(name).then((match) => {
-						recordItem(name, "Eneba card title, looked up on Steam", match);
-						if (match) markMatch(card, match, (steam_link) => card.appendChild(steam_link));
-					}).catch(logFailure(`Eneba card ${JSON.stringify(name)}`));
+					lookUpAndMark(name, "Eneba card title, looked up on Steam", (match) => {
+						markMatch(card, match, (steam_link) => card.appendChild(steam_link));
+					});
 				}
 				// Product page heading
 				const heading = document.querySelector("h1:not(.bh_already_processed)");
@@ -1393,10 +1402,9 @@ Copyright 2026, SentaiBrad
 					const name = enebaGameName(heading.textContent.trim());
 					if (name) {
 						heading.classList.add("bh_already_processed", "bh_eneba_heading");
-						resolveName(name).then((match) => {
-							recordItem(name, "Eneba page heading, looked up on Steam", match);
-							if (match) markMatch(heading, match, (link) => heading.appendChild(link));
-						}).catch(logFailure(`Eneba heading ${JSON.stringify(name)}`));
+						lookUpAndMark(name, "Eneba page heading, looked up on Steam", (match) => {
+							markMatch(heading, match, (link) => heading.appendChild(link));
+						});
 					}
 				}
 			}
@@ -1648,13 +1656,11 @@ Copyright 2026, SentaiBrad
 					if (!title_elem) continue;
 					const title = ownText(title_elem);
 					if (!title) debug_log.add("error", `Humble tile title came out empty; tile text is ${JSON.stringify(title_elem.textContent.trim().slice(0, 80))}`);
-					resolveName(title).then((match) => {
-						recordItem(title, "Humble title, looked up on Steam", match);
-						if (!match) return;
+					lookUpAndMark(title, "Humble title, looked up on Steam", (match) => {
 						const img_container = tile.querySelector(".img-container");
 						if (img_container) makeCard(img_container);
 						markMatch(tile, match, (link) => img_container?.appendChild(link));
-					}).catch(logFailure(`Humble tile ${JSON.stringify(title)}`));
+					});
 				}
 			}
 
@@ -1752,9 +1758,7 @@ Copyright 2026, SentaiBrad
 					if (!title_elem) continue;
 					const title = ownText(title_elem);
 					if (!title) debug_log.add("error", `itch.io tile title came out empty; tile text is ${JSON.stringify(title_elem.textContent.trim().slice(0, 80))}`);
-					resolveName(title).then((match) => {
-						recordItem(title, "itch.io title, looked up on Steam", match);
-						if (!match) return;
+					lookUpAndMark(title, "itch.io title, looked up on Steam", (match) => {
 						markMatch(tile, match, (link) => {
 							const thumb = tile.querySelector("a.game_thumb");
 							if (!thumb) return;
@@ -1764,7 +1768,7 @@ Copyright 2026, SentaiBrad
 							link.style.zIndex = "10";
 							thumb.appendChild(link);
 						});
-					}).catch(logFailure(`itch.io tile ${JSON.stringify(title)}`));
+					});
 				}
 			}
 
