@@ -2,7 +2,7 @@
 // @name            Bundle Helper Reborn 3.0
 // @namespace       https://github.com/SentaiBrad/
 // @author          SentaiBrad
-// @version         3.0.36
+// @version         3.0.37
 // @description     Marks the Steam games you own, have wishlisted or ignored on bundle and game store sites (Humble Bundle, Fanatical, Eneba and more), including packs and bundles, with a Steam button on each game.
 // @match           *://dailyindiegame.com/*
 // @match           *://old.reddit.com/*
@@ -1897,6 +1897,7 @@ Copyright 2026, SentaiBrad
 		gear: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.4 13a7.6 7.6 0 0 0 0-2l2.1-1.6-2-3.4-2.5 1a7.4 7.4 0 0 0-1.7-1L15 3.3h-4l-.4 2.7a7.4 7.4 0 0 0-1.7 1l-2.5-1-2 3.4L6.6 11a7.6 7.6 0 0 0 0 2l-2.1 1.6 2 3.4 2.5-1a7.4 7.4 0 0 0 1.7 1l.4 2.7h4l.4-2.7a7.4 7.4 0 0 0 1.7-1l2.5 1 2-3.4zM12 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7z"/></svg>`,
 		bug: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3.5 7.6 2.1l1-1L10.3 2.8a5 5 0 0 1 3.4 0L15.4 1.1l1 1L15 3.5A5 5 0 0 1 17 7H7a5 5 0 0 1 2-3.5Z"/><path d="M6 8h12v6a6 6 0 0 1-5.25 5.95V11h-1.5v8.95A6 6 0 0 1 6 14V8Z"/><path d="M1 9h4v1.5H1zM19 9h4v1.5h-4zM1 13.25h4v1.5H1zM19 13.25h4v1.5h-4zM2.5 19.5 5.6 16.4l1.1 1.06-3.1 3.1zM21.5 19.5l-3.1-3.1-1.1 1.06 3.1 3.1z"/></svg>`,
 		minimize: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 11h14v2H5z"/></svg>`,
+		expand: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7.4 15.4 12 10.8l4.6 4.6L18 14l-6-6-6 6z"/></svg>`,
 	};
 
 	// Steam's store colors (read from store.steampowered.com, 2026-10-30) and a
@@ -1918,6 +1919,9 @@ Copyright 2026, SentaiBrad
 		   corner. */
 		.bar { display: flex; align-items: center; gap: 0.8em; padding: 0.3em 0.8em calc(0.3em + 26px); cursor: pointer; white-space: nowrap; }
 		.bar:hover { background: rgb(23, 29, 37); }
+		/* The whole bar opens the panel; the button at its end shows that it does. */
+		.bar .icon { margin-left: auto; background: #2a475e; color: #fff; }
+		.bar:hover .icon { background: #66c0f4; color: rgb(15, 25, 36); }
 		[hidden] { display: none !important; }
 		.head { display: flex; align-items: center; gap: 0.3em; padding: 0.4em 0.6em; background: rgb(23, 29, 37); border-bottom: 1px solid #2a475e; }
 		.head b { flex: 1; color: #fff; font-weight: bold; }
@@ -1966,6 +1970,7 @@ Copyright 2026, SentaiBrad
 			<span class="wished" id="bar-wished"></span>
 			<span class="ignored" id="bar-ignored"></span>
 			<span class="note" id="bar-age"></span>
+			<span class="icon">${panel_icons.expand}</span>
 		</div>
 		<div class="panel" id="panel">
 			<div class="head">

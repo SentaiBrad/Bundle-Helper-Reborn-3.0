@@ -1,5 +1,9 @@
 # Changelog
 
+## 3.0.37
+
+- The minimized panel bar has an open button at its end, in the panel's button style, so it's clear the bar opens the panel. Hovering the bar lights the button up.
+
 ## 3.0.36
 
 - Internal: checking a store's Steam ID, turning a product's contents into a pack, and resolving a product (its ID, then its contents, then its name) are now shared code that any site can use, instead of being part of Fanatical's. Marking doesn't change.

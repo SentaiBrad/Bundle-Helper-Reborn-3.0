@@ -54,7 +54,7 @@ A small panel in the bottom corner shows when your Steam data was last fetched, 
 
 - **refresh:** fetch your Steam data again.
 - **Retry misses:** forget titles that weren't found and look them up again.
-- **[−]:** minimize the panel to a small bar; click the bar to open it again.
+- **[−]:** minimize the panel to a small bar; click the bar or its ^ button to open it again.
 - **Settings (gear):** panel size and corner, labels on cards, Steam links in a background tab, the optional Steam Web API key, and buttons to refresh or clear saved data.
 - **Debug (bug):** what the script did on this page: an overview, every item it looked at and the result, and its log. **Copy all** copies the report for a bug report, and **Report a problem** opens a new issue on GitHub. The report never includes anything that identifies you.
 
