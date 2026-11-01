@@ -2,7 +2,7 @@
 // @name            Bundle Helper Reborn 3.0
 // @namespace       https://github.com/SentaiBrad/
 // @author          SentaiBrad
-// @version         3.0.40
+// @version         3.0.41
 // @description     Marks the Steam games you own, have wishlisted or ignored on bundle and game store sites (Humble Bundle, Fanatical, Eneba and more), including packs and bundles, with a Steam button on each game.
 // @match           *://dailyindiegame.com/*
 // @match           *://old.reddit.com/*
@@ -117,7 +117,7 @@ Copyright 2026, SentaiBrad
 			// Another account's data must never carry over: forget everything
 			// saved and fetch the Steam data again.
 			clearSavedLookups();
-			refreshSteamData().catch(() => {});
+			refreshSteamData().catch(steamRefreshFailed);
 		}
 		applySettings();
 	}
@@ -206,7 +206,7 @@ Copyright 2026, SentaiBrad
 			try {
 				callback();
 			} catch (error) {
-				debugLog.add("error", `page scan failed: ${error?.stack ?? error}`);
+				recordError("page scan", error);
 			}
 			const took = Math.round(performance.now() - started);
 			scanStats.count++;
@@ -234,7 +234,7 @@ Copyright 2026, SentaiBrad
 
 	// Logs failures of a lookup-and-mark chain instead of losing them.
 	function logFailure(where) {
-		return (error) => debugLog.add("error", `${where}: ${error?.stack ?? error}`);
+		return (error) => recordError(where, error);
 	}
 
 	// Text sitting directly inside an element, ignoring text in its child
@@ -325,6 +325,104 @@ Copyright 2026, SentaiBrad
 			debugState.first_mark_ms = Math.round(performance.now());
 			debugLog.add("site", `first item marked ${debugState.first_mark_ms} ms after the page started loading`);
 		}
+	}
+
+	//////////////////////////////////////////////////
+	// Errors
+	//
+	// Every error the script catches goes through recordError(), which keeps a
+	// cleaned copy for the debug report. Nothing that identifies the user goes
+	// in: web addresses lose their query and #part, extension addresses (they
+	// carry a per-browser ID) and local file paths are replaced, and stack
+	// frames outside this script become "[other code]". This script's own
+	// frames keep only the function name and the line, never an address.
+
+	const maxErrorRecords = 20;
+	const errorRecords = [];
+
+	// One line of a stack trace, as Chromium ("    at name (location:1:2)") or
+	// Firefox ("name@location:1:2") writes it. Returns {name, location, line,
+	// column}, or null for a line that isn't a frame.
+	function frameParts(line) {
+		const chromium = line.match(/^\s*at\s+(?:(.+?)\s+\()?(.+):(\d+):(\d+)\)?\s*$/);
+		if (chromium) return {name: chromium[1] ?? "", location: chromium[2], line: chromium[3], column: chromium[4]};
+		const firefox = line.match(/^(.*?)@(.+):(\d+):(\d+)\s*$/);
+		if (firefox) return {name: firefox[1], location: firefox[2], line: firefox[3], column: firefox[4]};
+		return null;
+	}
+
+	// Where this script's own code is, as stack traces name it. Read once from a
+	// stack made here; "" when the browser gives no readable stack, and then
+	// every frame counts as other code.
+	const ownScriptLocation = String(new Error().stack ?? "").split("\n").map(frameParts).find(Boolean)?.location ?? "";
+
+	// Removes what could identify the user from text that goes into the report.
+	function cleanText(text) {
+		return String(text)
+			.replace(/\b[a-z-]+-extension:\/\/[^\s)'"]*/gi, "[extension]")
+			.replace(/\bfile:\/\/[^\s)'"]*/gi, "[file]")
+			.replace(/\b[A-Z]:\\[^\s)'"]*/g, "[file]")
+			.replace(/\b(https?:\/\/[^\s?#)'"]*)[?#][^\s)'"]*/gi, "$1");
+	}
+
+	// The frames of a stack trace, innermost first: this script's own frames
+	// as "name:line:column", runs of anything else as one "[other code]".
+	function cleanStack(stack) {
+		const frames = [];
+		for (const line of String(stack ?? "").split("\n")) {
+			const frame = frameParts(line);
+			if (!frame) continue;
+			const own = ownScriptLocation !== "" && frame.location === ownScriptLocation;
+			const text = own ? `${cleanText(frame.name) || "(anonymous)"}:${frame.line}:${frame.column}` : "[other code]";
+			if (text === "[other code]" && frames[frames.length - 1] === text) continue;
+			frames.push(text);
+		}
+		return frames;
+	}
+
+	// Records an error the script caught while doing `task`, then carries on.
+	// The same error from the same task is counted, not stored again, so a scan
+	// that fails every 2 seconds doesn't flood the report. Never throws.
+	function recordError(task, error) {
+		try {
+			const kind = error?.name && error.name !== "Error" ? `${error.name}: ` : "";
+			const text = kind + cleanText(error?.message ?? error ?? "unknown error").slice(0, 300);
+			const existing = errorRecords.find((record) => record.task === task && record.text === text);
+			if (existing) {
+				existing.count++;
+				return;
+			}
+			const frames = cleanStack(error?.stack);
+			if (errorRecords.length < maxErrorRecords) {
+				errorRecords.push({time: new Date(), task, text, frames, count: 1});
+			}
+			const where = frames.find((frame) => frame !== "[other code]");
+			debugLog.add("error", `${task}: ${text}${where ? ` (at ${where})` : ""}`);
+			// The panel shows that something went wrong; an error in the panel
+			// itself doesn't ask the panel to redraw, which could fail again.
+			if (!task.includes("panel")) schedulePanelUpdate();
+		} catch {
+			debugLog.add("error", `${task}: an error happened, and recording it failed too`);
+		}
+	}
+
+	// Wraps a function that runs on its own later (an event listener, a timer,
+	// a hook on the page) so an error in it is recorded and goes no further:
+	// never into the site's own code or its error reporting. A promise it
+	// returns is watched the same way.
+	function guard(task, fn) {
+		return function(...args) {
+			try {
+				const result = fn.apply(this, args);
+				if (result && typeof result.then === "function") {
+					result.then(undefined, (error) => recordError(task, error));
+				}
+				return result;
+			} catch (error) {
+				recordError(task, error);
+				return undefined;
+			}
+		};
 	}
 
 	//////////////////////////////////////////////////
@@ -442,6 +540,12 @@ Copyright 2026, SentaiBrad
 			if (!owned) debugLog.add("error", "Steam returned 0 owned apps. Usually this means you're not signed in at store.steampowered.com in this browser.");
 			saveSteamData(data);
 		});
+	}
+
+	// fetchSteamData logs its own request failures and rejects without an
+	// error; anything else that goes wrong while refreshing is recorded.
+	function steamRefreshFailed(error) {
+		if (error) recordError("Steam data refresh", error);
 	}
 
 	function refreshSteamDataIfOld() {
@@ -953,12 +1057,12 @@ Copyright 2026, SentaiBrad
 	// so the store page keeps focus.
 	function createSteamLink(appOrSub, id) {
 		const a = createSteamButton(steamUrl(appOrSub, id));
-		a.addEventListener("click", function(ev) {
+		a.addEventListener("click", guard("Steam button", (ev) => {
 			ev.stopPropagation();
 			if (!getSetting("background_tabs")) return;   // follow the link normally
 			ev.preventDefault();
 			GM_openInTab(a.href, {active: false});
-		});
+		}));
 		return a;
 	}
 
@@ -968,11 +1072,11 @@ Copyright 2026, SentaiBrad
 		const first = members.find((member) => member.type === "app" || member.type === "sub");
 		const a = createSteamButton(first ? steamUrl(first.type, first.id) : "https://store.steampowered.com/");
 		a.title = "Games in this pack";
-		a.addEventListener("click", function(ev) {
+		a.addEventListener("click", guard("pack button", (ev) => {
 			ev.preventDefault();
 			ev.stopPropagation();
 			openPackMenu(a, members);
-		});
+		}));
 		return a;
 	}
 
@@ -1004,13 +1108,13 @@ Copyright 2026, SentaiBrad
 	}
 
 	// Clicks outside the menu, Esc and scrolling close it.
-	document.addEventListener("click", (ev) => {
+	document.addEventListener("click", guard("pack menu", (ev) => {
 		if (shownPackMenu && !shownPackMenu.contains(ev.target)) closePackMenu();
-	}, true);
-	document.addEventListener("keydown", (ev) => {
+	}), true);
+	document.addEventListener("keydown", guard("pack menu", (ev) => {
 		if (ev.key === "Escape") closePackMenu();
-	});
-	window.addEventListener("scroll", closePackMenu, {passive: true});
+	}));
+	window.addEventListener("scroll", guard("pack menu", closePackMenu), {passive: true});
 
 	const packMemberStates = {
 		bh_owned: {text: "OWNED", css: "owned"},
@@ -1046,12 +1150,12 @@ Copyright 2026, SentaiBrad
 				row.href = steamUrl(member.type, member.id);
 				// Opens in a background tab, like a middle-click, so the store
 				// page keeps focus and the menu stays open.
-				row.addEventListener("click", (ev) => {
+				row.addEventListener("click", guard("pack menu link", (ev) => {
 					ev.stopPropagation();
 					if (!getSetting("background_tabs")) return;   // follow the link normally
 					ev.preventDefault();
 					GM_openInTab(row.href, {active: false});
-				});
+				}));
 			}
 			menu.append(row);
 		}
@@ -1463,28 +1567,32 @@ Copyright 2026, SentaiBrad
 			// * https://stackoverflow.com/a/29293383
 			// Using unsafeWindow to access the page's window object:
 			// * https://violentmonkey.github.io/api/metadata-block/#inject-into
+			// The page always gets its response and its answer exactly as they came,
+			// and nothing the script does with them can throw into the page's code:
+			// reading the answer is guarded, and a failed answer is left for the
+			// page to handle, as it would be without the script.
+			const readFanaticalAnswer = guard("Fanatical data hook", (answer) => {
+				answer.then(guard("Fanatical data hook", (jsonData) => {
+					if (!jsonData) return;
+					rememberFanaticalData(jsonData);
+					// Cards may already be on the page when their data arrives.
+					rescanSoon();
+				}), () => {});
+			});
+			const watchFanaticalResponse = guard("Fanatical data hook", (response) => {
+				const originalJson = response.json;
+				if (!originalJson) return;
+				response.json = function(...args) {
+					const answer = originalJson.apply(this, args);
+					readFanaticalAnswer(answer);
+					return answer;
+				};
+			});
 			const originalFetch = unsafeWindow.fetch;
 			debugState.fetch_hook = "installed";
 			unsafeWindow.fetch = async function(...args) {
-				const [resource, options] = args;
-				const response = await originalFetch(resource, options);
-
-				// Replacing the .json() method.
-				const originalJson = response.json;
-				if (originalJson) {
-					response.json = function() {
-						const p = originalJson.apply(this);
-						p.then((jsonData) => {
-							if (!jsonData) {
-								return;
-							}
-							rememberFanaticalData(jsonData);
-							// Cards may already be on the page when their data arrives.
-							rescanSoon();
-						});
-						return p;
-					}
-				}
+				const response = await originalFetch(...args);
+				watchFanaticalResponse(response);
 				return response;
 			};
 
@@ -1497,15 +1605,15 @@ Copyright 2026, SentaiBrad
 			const fallbackRequested = new Set();
 			let hookHadItsChance = false;
 			function startFallbackTimer() {
-				setTimeout(() => {
+				setTimeout(guard("Fanatical data fallback", () => {
 					hookHadItsChance = true;
 					rescanSoon();
-				}, 2000);
+				}), 2000);
 			}
 			if (document.readyState === "complete") {
 				startFallbackTimer();
 			} else {
-				window.addEventListener("load", startFallbackTimer);
+				window.addEventListener("load", guard("Fanatical data fallback", startFallbackTimer));
 			}
 
 			function pageDataUrl() {
@@ -1599,7 +1707,7 @@ Copyright 2026, SentaiBrad
 				markProductsNeedingLookup();
 				requestMissedPageData().catch(logFailure("Fanatical data fallback"));
 			}
-			const rescanSoon = throttle(scanPage, 500);
+			const rescanSoon = throttle(guard("page scan", scanPage), 500);
 
 			watchAllForChanges("body", scanPage, 2000);
 
@@ -1778,7 +1886,7 @@ Copyright 2026, SentaiBrad
 			function retryUntilTilesAppear() {
 				processItchTiles();
 				if (document.querySelectorAll(".index_game_cell_widget.game_cell").length === 0 && retries++ < 10) {
-					setTimeout(retryUntilTilesAppear, 1000);
+					setTimeout(guard("itch.io tiles", retryUntilTilesAppear), 1000);
 				}
 			}
 			retryUntilTilesAppear();
@@ -1996,6 +2104,8 @@ Copyright 2026, SentaiBrad
 		.dot.bh_ignored { border: 2px dashed #9a9a9a; } .dot.bh_partial { background: #c792ff; border: none; } .dot.miss { background: #e05555; border: none; }
 		.foot { display: flex; justify-content: space-between; padding: 0.4em 0.8em; border-top: 1px solid #2a475e; font-size: 0.92em; }
 		.copied { color: #22e07a; }
+		.problem { color: #ff6b6b; font-weight: bold; }
+		.row.problem > span:last-child { font-weight: normal; white-space: nowrap; }
 	`;
 
 	const panelHtml = `
@@ -2005,6 +2115,7 @@ Copyright 2026, SentaiBrad
 			<span class="wished" id="bar-wished"></span>
 			<span class="ignored" id="bar-ignored"></span>
 			<span class="note" id="bar-age"></span>
+			<span class="problem" id="bar-problem" hidden></span>
 			<span class="icon">${panelIcons.expand}</span>
 		</div>
 		<div class="panel" id="panel">
@@ -2015,6 +2126,7 @@ Copyright 2026, SentaiBrad
 				<button class="icon" id="minimize" title="Minimize">${panelIcons.minimize}</button>
 			</div>
 			<div class="body" id="view-main">
+				<div class="row problem" id="problem" hidden><span id="problem-text">Something went wrong</span><span><span class="link" id="problem-details" role="button" tabindex="0">details</span> · <span class="link" id="problem-report" role="button" tabindex="0">report</span></span></div>
 				<div class="row"><span>Steam data</span><span><span id="age"></span> · <span class="link" id="refresh" role="button" tabindex="0">refresh</span></span></div>
 				<div class="row"><span class="owned">Owned</span><span id="owned"></span></div>
 				<div class="row"><span class="wished">Wishlist</span><span id="wishlist"></span></div>
@@ -2064,34 +2176,33 @@ Copyright 2026, SentaiBrad
 		}
 
 		// Every panel action is logged, and an error in one can't break the panel.
-		const onClick = (selector, action) => $(selector).addEventListener("click", (ev) => {
+		const onClick = (selector, action) => $(selector).addEventListener("click", guard(`panel action ${selector}`, (ev) => {
 			ev.preventDefault();
 			debugLog.add("panel", `clicked ${selector}`);
-			try {
-				action(ev);
-			} catch (error) {
-				debugLog.add("error", `panel action ${selector} failed: ${error?.stack ?? error}`);
-			}
-		});
+			return action(ev);
+		}));
 		onClick("#open-settings", () => showView("settings"));
 		onClick("#open-debug", () => showView("debug"));
 		onClick("#minimize", () => setMinimized(true));
 		onClick("#bar", () => setMinimized(false));
-		$("#bar").addEventListener("keydown", (ev) => { if (ev.key === "Enter") setMinimized(false); });
-		onClick("#refresh", () => refreshSteamData().catch(() => {}).finally(() => panel.update()));
+		$("#bar").addEventListener("keydown", guard("panel action #bar", (ev) => { if (ev.key === "Enter") setMinimized(false); }));
+		onClick("#refresh", () => refreshSteamData().catch(steamRefreshFailed).finally(() => panel.update()));
 		onClick("#retry", () => {
 			const removed = clearSavedMisses();
 			debugLog.add("lookup", `cleared ${removed} saved misses, reloading page`);
 			location.reload();
 		});
 		for (const tab of shadow.querySelectorAll("[data-tab]")) {
-			tab.addEventListener("click", () => {
+			tab.addEventListener("click", guard("panel tab", () => {
 				debugTab = tab.dataset.tab;
 				for (const other of shadow.querySelectorAll("[data-tab]")) other.setAttribute("aria-pressed", String(other === tab));
 				panel.update();
-			});
+			}));
 		}
 		onClick("#copy", () => copyReport(buildDebugReport("all"), $("#debug-body"), $("#copy-note")));
+		onClick("#problem-details", () => showView("debug"));
+		onClick("#problem-report", () => reportProblem(null));
+		onClick("#report", () => reportProblem($("#copy-note")));
 		buildSettingsView($("#view-settings"));
 
 		const panel = {
@@ -2106,7 +2217,7 @@ Copyright 2026, SentaiBrad
 				try {
 					this.render();
 				} catch (error) {
-					debugLog.add("error", `panel update failed: ${error?.stack ?? error}`);
+					recordError("panel update", error);
 				}
 			},
 			render() {
@@ -2115,6 +2226,10 @@ Copyright 2026, SentaiBrad
 				$("#bar-wished").textContent = `${sets.wishlist.size.toLocaleString()} wishlist`;
 				$("#bar-ignored").textContent = `${sets.ignoredApps.size.toLocaleString()} ignored`;
 				$("#bar-age").textContent = steamDataAge() ? `fetched ${steamDataAge() === "just now" ? "just now" : `${steamDataAge()} ago`}` : "never fetched";
+				$("#bar-problem").hidden = !errorRecords.length;
+				$("#bar-problem").textContent = plural(errorRecords.length, "error");
+				$("#problem").hidden = !errorRecords.length;
+				$("#problem-text").textContent = `Something went wrong (${errorRecords.length})`;
 				if ($("#panel").hidden) return;
 				if (view === "main") updateMainView($, sets);
 				if (view === "settings") updateSettingsView($("#view-settings"));
@@ -2174,7 +2289,7 @@ Copyright 2026, SentaiBrad
 				control.setAttribute("role", "switch");
 				control.dataset.setting = definition.id;
 				control.title = definition.label;
-				control.addEventListener("click", () => setSetting(definition.id, !getSetting(definition.id)));
+				control.addEventListener("click", guard(`panel setting ${definition.id}`, () => setSetting(definition.id, !getSetting(definition.id))));
 				row.append(control);
 			} else {
 				const choices = document.createElement("span");
@@ -2184,7 +2299,7 @@ Copyright 2026, SentaiBrad
 					choice.textContent = text;
 					choice.dataset.setting = definition.id;
 					choice.dataset.value = value;
-					choice.addEventListener("click", () => setSetting(definition.id, value));
+					choice.addEventListener("click", guard(`panel setting ${definition.id}`, () => setSetting(definition.id, value)));
 					choices.append(choice);
 				}
 				row.append(choices);
@@ -2208,14 +2323,10 @@ Copyright 2026, SentaiBrad
 			button.className = "button";
 			button.textContent = text;
 			button.title = title;
-			button.addEventListener("click", () => {
+			button.addEventListener("click", guard(`panel action ${text}`, () => {
 				debugLog.add("panel", `clicked ${text}`);
-				try {
-					action();
-				} catch (error) {
-					debugLog.add("error", `panel action ${text} failed: ${error?.stack ?? error}`);
-				}
-			});
+				return action();
+			}));
 			parent.append(button);
 		};
 		addButton(keyActions, "Save key", "Save the key in your userscript manager", () => {
@@ -2242,7 +2353,7 @@ Copyright 2026, SentaiBrad
 		const dataActions = document.createElement("div");
 		dataActions.className = "actions";
 		addButton(dataActions, "Refresh Steam data", "Fetch your owned, wishlisted and ignored lists again", () => {
-			refreshSteamData().catch(() => {}).finally(() => thePanel?.update());
+			refreshSteamData().catch(steamRefreshFailed).finally(() => thePanel?.update());
 		});
 		addButton(dataActions, "Retry misses", "Forget titles that weren't found and look them up again", () => {
 			clearSavedMisses();
@@ -2297,15 +2408,21 @@ Copyright 2026, SentaiBrad
 		}
 	}
 
+	// A short message next to the debug view's buttons, gone after a moment.
+	// note can be null (Report a problem from the main view or the fallback
+	// notice).
+	function showNote(note, message) {
+		if (!note) return;
+		note.textContent = message;
+		note.className = "copied";
+		clearTimeout(note.bh_timer);
+		note.bh_timer = setTimeout(() => { note.textContent = ""; }, 2500);
+	}
+
 	// Copies the report; when the clipboard is blocked, shows it selected so
 	// Ctrl+C works.
 	function copyReport(text, body, note) {
-		const done = (message) => {
-			note.textContent = message;
-			note.className = "copied";
-			clearTimeout(note.bh_timer);
-			note.bh_timer = setTimeout(() => { note.textContent = ""; }, 2500);
-		};
+		const done = (message) => showNote(note, message);
 		const fallback = () => {
 			body.textContent = "";
 			const pre = document.createElement("pre");
@@ -2325,10 +2442,64 @@ Copyright 2026, SentaiBrad
 	// Updates the panel at most once a second while things are being marked.
 	const schedulePanelUpdate = throttle(() => thePanel?.update(), 1000);
 
+	// The longest new-issue address to open; GitHub turns away much longer ones.
+	const maxIssueUrlLength = 8000;
+
+	// The new-issue address for Report a problem: a title, two questions and
+	// the debug report in a code block. When the full report makes the address
+	// too long, the overview goes in instead, with a note to paste the full
+	// report, which is on the clipboard; failing that, only the note.
+	function problemReportUrl(report, overview) {
+		const version = GM_info?.script?.version ?? "unknown";
+		const title = `Problem on ${location.hostname} (version ${version})`;
+		const questions = "**What happened?**\n\n\n**What did you expect to happen?**\n\n\n";
+		const codeBlock = (text) => "```\n" + text + "\n```\n";
+		const pasteNote = "The full report (with the items and the log) was copied to your clipboard: please paste it below. If it wasn't, open the debug view in the Bundle Helper panel and click Copy all.";
+		const bodies = [
+			`${questions}**Debug report**\n\n${codeBlock(report)}`,
+			`${questions}**Debug report** (overview)\n\n${codeBlock(overview)}\n${pasteNote}\n\n`,
+			`${questions}**Debug report**\n\n${pasteNote}\n\n`,
+		];
+		const address = (body) => `${issuesUrl}?title=${encodeURIComponent(title)}&body=${encodeURIComponent(body)}`;
+		return bodies.map(address).find((url) => url.length <= maxIssueUrlLength) ?? address(bodies[bodies.length - 1]);
+	}
+
+	// Report a problem: copies the full debug report to the clipboard, then
+	// opens GitHub's new-issue page in a new tab with the report filled in.
+	// Nothing is sent by the script itself; the report reaches GitHub through
+	// the page the person opened, and is posted only if they submit it.
+	function reportProblem(note) {
+		debugLog.add("panel", "Report a problem");
+		const report = buildDebugReport("all");
+		if (navigator.clipboard?.writeText) {
+			navigator.clipboard.writeText(report).then(() => showNote(note, "Report copied"), () => showNote(note, "Couldn't copy: use Copy all"));
+		}
+		GM_openInTab(problemReportUrl(report, buildDebugReport("overview")), {active: true});
+	}
+
+	// Shown only when the panel couldn't be built: a plain line in the corner
+	// with the same way to report the problem.
+	function showFallbackNotice() {
+		const notice = document.createElement("bundle-helper-notice");
+		notice.style.cssText = "all: initial; position: fixed; left: 0; bottom: 0; z-index: 99; padding: 0.4em 0.8em; font: 13px/1.5 Arial, Helvetica, sans-serif; color: #ff6b6b; background: rgb(15, 25, 36); border: 1px solid #2a475e;";
+		notice.textContent = "Bundle Helper: something went wrong. ";
+		const link = document.createElement("a");
+		link.href = issuesUrl;
+		link.textContent = "Report a problem";
+		link.style.cssText = "all: initial; color: #66c0f4; text-decoration: underline; cursor: pointer; font: inherit;";
+		link.addEventListener("click", guard("problem notice", (ev) => {
+			ev.preventDefault();
+			reportProblem(null);
+		}));
+		notice.append(link);
+		document.body.append(notice);
+	}
+
 	// Plain-text report: [Section] headers and "Setting = value" lines.
 	// tab: "overview", "items", "log" or "all" (everything, used by Copy all).
 	// Never includes anything that identifies the user: the page address has
-	// no query or #hash, and the API key only shows its last 4 characters.
+	// no query or #hash, errors are cleaned by recordError(), and the API key
+	// only shows its last 4 characters.
 	function buildDebugReport(tab = "all") {
 		const lines = [];
 		const section = (name) => {
@@ -2349,7 +2520,7 @@ Copyright 2026, SentaiBrad
 			section("Script");
 			value("Version", info?.script?.version ?? "unknown");
 			value("Manager", info ? `${info.scriptHandler ?? "unknown"} ${info.version ?? ""}`.trim() : "unknown");
-			value("Update URL", info?.script?.updateURL || info?.script?.downloadURL || info?.scriptUpdateURL || "unknown");
+			value("Update URL", cleanText(info?.script?.updateURL || info?.script?.downloadURL || info?.scriptUpdateURL || "unknown"));
 			value("Injection mode", info?.sandboxMode ?? info?.injectInto ?? "unknown");
 			value("Browser", navigator.userAgent);
 			value("Script started", `${debugState.started_ms} ms after the page started loading`);
@@ -2419,6 +2590,16 @@ Copyright 2026, SentaiBrad
 			}
 			value("Errors this page", debugLog.count("error"));
 
+			section("Errors");
+			errorRecords.forEach((record, i) => {
+				const times = record.count > 1 ? `, ${record.count} times` : "";
+				value(`Error ${i + 1}`, `${record.task}${times}, first at ${record.time.toLocaleTimeString()}`);
+				value(`Error ${i + 1} message`, record.text);
+				value(`Error ${i + 1} stack`, record.frames.join(", ") || "not readable in this browser");
+			});
+			if (!errorRecords.length) lines.push("(none)");
+			if (!ownScriptLocation) value("Stack traces", "this browser gives no readable stack, so frames can't be told apart");
+
 			section("Steam API");
 			const key = steamApi.getKey();
 			value("Key", key ? `set (ends in ${key.slice(-4)})` : "not set");
@@ -2448,7 +2629,6 @@ Copyright 2026, SentaiBrad
 	function addBundleHelperUI() {
 		thePanel = createPanel();
 		document.body.appendChild(thePanel.host);
-		refreshSteamDataIfOld().catch(() => {}).finally(() => thePanel.update());
 		return thePanel;
 	}
 
@@ -2467,11 +2647,11 @@ Copyright 2026, SentaiBrad
 		try {
 			handler();
 		} catch (error) {
-			debugLog.add("error", `${hostname} handler failed: ${error?.stack ?? error}`);
+			recordError(`${hostname} handler`, error);
 		}
 	}
 
-	function main() {
+	function addMarkingStyles() {
 		GM_addStyle(`
 			/* The corner panel; its corner and size come from the settings. */
 			bundle-helper {
@@ -2640,12 +2820,20 @@ Copyright 2026, SentaiBrad
 				height: var(--bh-steamlink-size);
 			}
 		`);
+	}
 
-		applySettings();
-		addBundleHelperUI();
-
-		// Run site-specific code.
-		processSite();
+	// Each step runs on its own: if the panel can't be built, the Steam data
+	// is still fetched, marking still runs, and a plain notice offers the
+	// report instead.
+	function main() {
+		guard("start-up: styles", addMarkingStyles)();
+		guard("start-up: settings", applySettings)();
+		guard("start-up: Steam data", () => {
+			refreshSteamDataIfOld().catch(steamRefreshFailed).finally(() => thePanel?.update());
+		})();
+		guard("start-up: panel", addBundleHelperUI)();
+		if (!thePanel?.host.isConnected) guard("start-up: notice", showFallbackNotice)();
+		guard("start-up: site", processSite)();
 	}
 
 	main();

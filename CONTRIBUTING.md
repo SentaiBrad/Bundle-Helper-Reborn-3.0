@@ -73,7 +73,8 @@ A site-specific fix may break a style rule when the site forces it. Add one comm
 
 **Safe**
 - Text from a site goes into the page only as text (`textContent`), never as HTML. `innerHTML` is only for the script's own fixed markup and icons.
-- Errors are caught where they enter the script (page scans, lookups) and logged.
+- Errors never escape into the site. Anything that runs on its own later (an event listener, a timer, a hook on the page's own functions) is wrapped in `guard(task, fn)`; a promise chain ends in `.catch(logFailure(task))`; a `catch` you write yourself calls `recordError(task, error)`. Never log `error.stack` directly: `recordError` cleans it.
+- A hook on the page's own functions (like Fanatical's `fetch`) must hand the page exactly what it would have got without the script, and do its own work on the side.
 - Debug reports never include anything that identifies the user: no query strings, account names, cookies, API keys, or details of other installed software.
 
 **Lean**

@@ -56,7 +56,8 @@ A small panel in the bottom corner shows when your Steam data was last fetched, 
 - **Retry misses:** forget titles that weren't found and look them up again.
 - **[−]:** minimize the panel to a small bar; click the bar or its ^ button to open it again.
 - **Settings (gear):** panel size and corner, labels on cards, Steam links in a background tab, the optional Steam Web API key, and buttons to refresh or clear saved data.
-- **Debug (bug):** what the script did on this page: an overview, every item it looked at and the result, and its log. **Copy all** copies the report for a bug report, and **Report a problem** opens a new issue on GitHub. The report never includes anything that identifies you.
+- **Debug (bug):** what the script did on this page: an overview, every item it looked at and the result, and its log. **Copy all** copies the report for a bug report. **Report a problem** copies it too and opens a new GitHub issue with the report filled in; it reaches GitHub only through that page, which you open, and is posted only if you submit it. The report never includes anything that identifies you.
+- **Something went wrong:** if the script hits an error, the panel says so in red, with links to the details and to Report a problem, and the minimized bar shows a count. The site itself keeps working.
 
 ## Privacy
 

@@ -1,5 +1,17 @@
 # Changelog
 
+## 3.0.41
+
+Error handling, so a problem in the script never breaks the site and is easy to report:
+
+- **The script can't break the site.** Everything that runs on its own (page scans, Steam buttons and the pack menu, timers, the panel's buttons and settings, Fanatical's data hook) records its errors instead of letting them escape. On Fanatical, the page always gets its own data untouched, and an error in the script never reaches Fanatical's code or its error reporting.
+- **Start-up runs in separate steps.** If the panel can't be built, the Steam data is still fetched, marking still runs, and a small notice in the corner offers to report the problem. (Before, a failed panel also stopped the Steam data from being fetched.)
+- **The panel shows when something went wrong:** a red line with links to the details and to Report a problem, and an error count on the minimized bar.
+- **Report a problem** copies the full debug report and opens a new GitHub issue with a few questions and the report filled in. When the report is too long for that, the overview is filled in and the description asks you to paste the full report from the clipboard.
+- **Debug report:** a new Errors section lists each error once, with the task that failed, the message, how often it happened, and where in the script.
+- **Debug report privacy:** error messages and stack traces no longer include anything that can identify you. Web addresses lose their query and # part, browser extension addresses (which carry a per-browser ID) and local file paths are replaced, and code outside this script shows as [other code]. The script's install address is cleaned the same way, since a script installed from a local file would show its path.
+- Errors while refreshing the Steam data are recorded instead of silently dropped.
+
 ## 3.0.40
 
 - Internal: the script's own functions and variables use `camelCase` (for example `debugLog`, `siteMapping`). Storage keys, setting IDs and CSS class names keep their names, so saved data and settings carry over. No change in behavior.
