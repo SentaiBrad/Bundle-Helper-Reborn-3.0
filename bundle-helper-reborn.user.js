@@ -2,7 +2,7 @@
 // @name            Bundle Helper Reborn 3.0
 // @namespace       https://github.com/SentaiBrad/
 // @author          SentaiBrad
-// @version         3.0.35
+// @version         3.0.36
 // @description     Marks the Steam games you own, have wishlisted or ignored on bundle and game store sites (Humble Bundle, Fanatical, Eneba and more), including packs and bundles, with a Steam button on each game.
 // @match           *://dailyindiegame.com/*
 // @match           *://old.reddit.com/*
@@ -794,6 +794,97 @@ Copyright 2026, SentaiBrad
 	}
 
 	//////////////////////////////////////////////////
+	// Store products and packs
+	//
+	// A product, as a site describes it:
+	//   name:     the store's name for it
+	//   steam:    {type: "app" or "sub", id} from the store's own data, or null
+	//   contents: null, or a function (nested) that resolves to the pack made of
+	//             the products inside it (see packFromContents), or null when it
+	//             lists none
+
+	// A store can label a game's ID as a package ID: Fanatical sells Resident
+	// Evil 5 Gold Edition as package 21690, but 21690 is the game and Steam has
+	// no such package. A package that isn't owned or ignored is checked on Steam
+	// once; when Steam has no such package but has a game with that ID, the game
+	// is used.
+	function needsSteamIdCheck(steam) {
+		return steam.type === "sub" && getClassForSubId(Number(steam.id)) === "";
+	}
+
+	async function checkStoreSteamId(steam) {
+		const id = Number(steam.id);
+		const given = {type: steam.type === "sub" ? "sub" : "app", id};
+		if (!needsSteamIdCheck(steam)) return given;
+		const checked = await cachedLookup(`package-check:${id}`, `Package ${id}`, async () => {
+			const exists = async (url) => {
+				const response = await steamGet(url, "json");
+				if (!response) return null;
+				let json = response.response;
+				if (typeof json === "string" || !json) {
+					try { json = JSON.parse(response.responseText); } catch { json = null; }
+				}
+				return Boolean(json?.[id]?.success);
+			};
+			const is_package = await exists(`https://store.steampowered.com/api/packagedetails?packageids=${id}&cc=us`);
+			if (is_package === null) return {result: null, cacheable: false};
+			if (is_package) return {result: given, cacheable: true};
+			const is_game = await exists(`https://store.steampowered.com/api/appdetails?appids=${id}&filters=basic&cc=us`);
+			if (is_game === null) return {result: null, cacheable: false};
+			debug_log.add("lookup", `Package ${id}: ${is_game ? `no such package on Steam, using game ${id}` : "not found on Steam as a package or a game"}`);
+			return {result: is_game ? {type: "app", id} : given, cacheable: true};
+		});
+		return checked ?? given;
+	}
+
+	// A product's own Steam ID (checked when needed), or else the pack its
+	// contents make, or else a lookup by its name.
+	async function resolveProduct(product, nested = false) {
+		if (product.steam?.id) {
+			return checkStoreSteamId(product.steam);
+		}
+		if (product.contents) {
+			const pack = await product.contents(nested);
+			if (pack) return pack;
+		}
+		return product.name ? resolveName(product.name) : null;
+	}
+
+	// Turns the products inside a product into a pack. One with a Steam ID is a
+	// member; one without is resolved like any product, so a compilation inside
+	// adds its games. Only one level of products inside products is followed.
+	// Members that can't be found count as not owned. Resolves to a pack, or
+	// null when there are no products.
+	async function packFromContents(products, nested) {
+		const members = [];
+		for (const product of products) {
+			members.push(...await packMembersFor(product, nested));
+		}
+		return members.length ? {type: "pack", members} : null;
+	}
+
+	async function packMembersFor(product, nested) {
+		const name = product.name ?? "";
+		if (product.steam?.id) {
+			return [{...await checkStoreSteamId(product.steam), name}];
+		}
+		const found = nested ? null : await resolveProduct(product, true);
+		if (found?.type === "pack") return found.members;
+		if (found) return [{...found, name}];
+		return [{type: "unknown", id: 0, name}];
+	}
+
+	function countMissingMembers(pack) {
+		return pack ? pack.members.filter((member) => member.type === "unknown").length : 0;
+	}
+
+	// A pack with a member that wasn't found is saved for a day, like a miss,
+	// so it gets another chance soon.
+	function packSaveDays(pack) {
+		return countMissingMembers(pack) ? saved_miss_days : undefined;
+	}
+
+	//////////////////////////////////////////////////
 	// Marking functions
 
 	function getClassForAppId(app) {
@@ -1070,7 +1161,7 @@ Copyright 2026, SentaiBrad
 	}
 
 	//////////////////////////////////////////////////
-	// Site-specific data and code
+	// Fanatical's product data (used by the fanatical.com handler)
 
 	// There are no visible ids in the DOM on Fanatical.
 	// Let's use something unique as the key: the cover image filenames.
@@ -1083,47 +1174,18 @@ Copyright 2026, SentaiBrad
 		}
 	}
 
-	// Fanatical sometimes labels a game's ID as a package ID: Resident Evil 5
-	// Gold Edition comes as package 21690, but 21690 is the game and Steam has no
-	// such package. A package that isn't owned or ignored is checked on Steam
-	// once; when Steam has no such package but has a game with that ID, the game
-	// is used.
-	function needsPackageCheck(steam) {
-		return steam.type === "sub" && getClassForSubId(Number(steam.id)) === "";
+	// A Fanatical product in the shape the shared product code uses (see
+	// "Store products and packs"). Its contents come from its own product data.
+	function fanaticalProduct(data) {
+		return {
+			name: data.name ?? "",
+			steam: data.steam?.id ? data.steam : null,
+			contents: data.slug ? (nested) => lookupFanaticalContents(data.slug, nested) : null,
+		};
 	}
 
-	async function checkFanaticalSteamId(steam) {
-		const id = Number(steam.id);
-		const given = {type: steam.type === "sub" ? "sub" : "app", id};
-		if (!needsPackageCheck(steam)) return given;
-		const checked = await cachedLookup(`fanatical-package:${id}`, `Fanatical package ${id}`, async () => {
-			const exists = async (url) => {
-				const response = await steamGet(url, "json");
-				if (!response) return null;
-				let json = response.response;
-				if (typeof json === "string" || !json) {
-					try { json = JSON.parse(response.responseText); } catch { json = null; }
-				}
-				return Boolean(json?.[id]?.success);
-			};
-			const is_package = await exists(`https://store.steampowered.com/api/packagedetails?packageids=${id}&cc=us`);
-			if (is_package === null) return {result: null, cacheable: false};
-			if (is_package) return {result: given, cacheable: true};
-			const is_game = await exists(`https://store.steampowered.com/api/appdetails?appids=${id}&filters=basic&cc=us`);
-			if (is_game === null) return {result: null, cacheable: false};
-			debug_log.add("lookup", `Fanatical package ${id}: ${is_game ? `no such package on Steam, using game ${id}` : "not found on Steam as a package or a game"}`);
-			return {result: is_game ? {type: "app", id} : given, cacheable: true};
-		});
-		return checked ?? given;
-	}
-
-	// Fanatical sells some products with no Steam ID of their own (collections,
-	// 2-in-1s). Its product data can list the products inside. Each one with a
-	// Steam ID is a pack member; one without is looked up like any product
-	// without a Steam ID (its own contents, then its name), so a compilation
-	// inside a pack adds its games. Members that can't be found count as not
-	// owned, and such a pack is saved for a day instead of 30.
-	// Resolves to a pack, or null when the product lists nothing.
+	// The products listed in a Fanatical product's own data (collections,
+	// 2-in-1s), as a pack. Resolves to null when it lists none.
 	function lookupFanaticalContents(slug, nested = false) {
 		return cachedLookup(`fanatical-contents:${slug}`, `Fanatical product ${slug}`, async () => {
 			let data;
@@ -1136,42 +1198,12 @@ Copyright 2026, SentaiBrad
 				debug_log.add("lookup", `Fanatical product ${slug}: request failed (${error}), will retry next visit`);
 				return {result: null, cacheable: false};
 			}
-			const members = [];
-			for (const bundle of data?.bundles ?? []) {
-				for (const game of bundle.games ?? []) {
-					members.push(...await packMembersFor(game, nested));
-				}
-			}
-			const unknown = members.filter((member) => member.type === "unknown").length;
-			debug_log.add("lookup", `Fanatical product ${slug}: ${members.length} Steam games inside${unknown ? `, ${unknown} not found` : ""}`);
-			return {result: members.length ? {type: "pack", members} : null, cacheable: true, days: unknown ? saved_miss_days : undefined};
+			const products = (data?.bundles ?? []).flatMap((bundle) => bundle.games ?? []).map(fanaticalProduct);
+			const pack = await packFromContents(products, nested);
+			const missing = countMissingMembers(pack);
+			debug_log.add("lookup", `Fanatical product ${slug}: ${pack?.members.length ?? 0} Steam games inside${missing ? `, ${missing} not found` : ""}`);
+			return {result: pack, cacheable: true, days: packSaveDays(pack)};
 		});
-	}
-
-	// The pack members one product inside a pack stands for. Only one level of
-	// products inside products is followed.
-	async function packMembersFor(game, nested) {
-		const name = game.name ?? "";
-		if (game.steam?.id) {
-			return [{...await checkFanaticalSteamId(game.steam), name}];
-		}
-		const found = nested ? null : await resolveFanaticalProduct({slug: game.slug, name}, true);
-		if (found?.type === "pack") return found.members;
-		if (found) return [{...found, name}];
-		return [{type: "unknown", id: 0, name}];
-	}
-
-	// For a Fanatical product without a usable Steam ID: its package ID checked
-	// on Steam, or its listed contents, then a lookup by name.
-	async function resolveFanaticalProduct(product, nested = false) {
-		if (product.steam?.id) {
-			return checkFanaticalSteamId(product.steam);
-		}
-		if (product.slug) {
-			const pack = await lookupFanaticalContents(product.slug, nested);
-			if (pack) return pack;
-		}
-		return product.name ? resolveName(product.name) : null;
 	}
 
 	//////////////////////////////////////////////////
@@ -1482,7 +1514,7 @@ Copyright 2026, SentaiBrad
 			// The Steam ID can be used as given: there is one, and it isn't a
 			// package ID that needs checking on Steam.
 			function usableSteamId(product) {
-				return product?.steam?.id && !needsPackageCheck(product.steam);
+				return product?.steam?.id && !needsSteamIdCheck(product.steam);
 			}
 
 			// Products without a usable Steam ID: collections and 2-in-1s with no
@@ -1499,7 +1531,7 @@ Copyright 2026, SentaiBrad
 					const source = product.steam?.id
 						? "Fanatical's package ID, checked on Steam"
 						: "Fanatical product without a Steam ID: its contents, or its name looked up on Steam";
-					resolveFanaticalProduct(product).then((match) => {
+					resolveProduct(fanaticalProduct(product)).then((match) => {
 						recordItem(product.name, source, match);
 						if (!match) return;
 						makeCard(card);
@@ -2308,8 +2340,12 @@ Copyright 2026, SentaiBrad
 
 			section("Saved lookups");
 			const saved = Object.entries(loadSavedLookups());
-			const kind = (key) => key.startsWith("fanatical-") ? "Fanatical products" : "Titles";
-			for (const name of ["Titles", "Fanatical products"]) {
+			const kind = (key) => {
+				if (key.startsWith("fanatical-contents:")) return "Fanatical products";
+				if (key.startsWith("package-check:")) return "Package checks";
+				return "Titles";
+			};
+			for (const name of ["Titles", "Fanatical products", "Package checks"]) {
 				const entries = saved.filter(([key]) => kind(key) === name);
 				value(name, `${entries.filter(([, e]) => e.match).length} found, ${entries.filter(([, e]) => !e.match).length} not found`);
 			}

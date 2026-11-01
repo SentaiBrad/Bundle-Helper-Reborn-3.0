@@ -1,5 +1,10 @@
 # Changelog
 
+## 3.0.36
+
+- Internal: checking a store's Steam ID, turning a product's contents into a pack, and resolving a product (its ID, then its contents, then its name) are now shared code that any site can use, instead of being part of Fanatical's. Marking doesn't change.
+- Package checks are saved under a new name, so ones saved by 3.0.34 and 3.0.35 are made once more. The debug report counts them separately from titles and Fanatical products.
+
 ## 3.0.35
 
 - Internal: the code is reordered so it reads top to bottom (settings, utilities, Steam data, title matching, marking, sites, panel, start-up), with the site handlers alphabetical and each starting with a note on the pages it covers. No change in behavior.
