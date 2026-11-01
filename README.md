@@ -63,7 +63,7 @@ A small panel in the bottom corner shows when your Steam data was last fetched, 
 
 Everything stays in your browser, in your userscript manager's storage. Nothing is sent to anyone else.
 
-- **Steam library:** your owned, wishlisted and ignored lists are read from `store.steampowered.com` while you're signed in, and saved for up to 24 hours.
+- **Steam library:** your owned, wishlisted and ignored lists are read from `store.steampowered.com` while you're signed in, and saved for up to 24 hours. If you're signed out, the saved lists are kept and the panel asks you to sign in.
 - **Title lookups:** game titles are searched on Steam's store search, and Steam's public app and package details are read to find packages and to check IDs a store gives. Results are saved: found titles for 30 days, not-found titles for 1 day.
 - **Fanatical:** the script reads the product data Fanatical's own pages load. It requests data from Fanatical itself only when it needs the games inside a product, or when the page loaded its data before the script started. Results are saved for 30 days (a pack with a game that wasn't found, for 1 day).
 - **No API key is needed.** If you enter an optional Steam Web API key, it's stored only in your userscript manager and never logged or shown in the debug report.

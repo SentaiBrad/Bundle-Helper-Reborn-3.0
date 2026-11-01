@@ -2,7 +2,7 @@
 // @name            Bundle Helper Reborn 3.0
 // @namespace       https://github.com/SentaiBrad/
 // @author          SentaiBrad
-// @version         3.0.41
+// @version         3.0.42
 // @description     Marks the Steam games you own, have wishlisted or ignored on bundle and game store sites (Humble Bundle, Fanatical, Eneba and more), including packs and bundles, with a Steam button on each game.
 // @match           *://dailyindiegame.com/*
 // @match           *://old.reddit.com/*
@@ -475,6 +475,11 @@ Copyright 2026, SentaiBrad
 	const steamDataKey = "bh_profile_data";
 	const steamDataTimeKey = "bh_profile_time";
 	const steamDataMaxAge = 60 * 60 * 24;  // 24 hours
+	// A Steam request that hasn't answered by then counts as failed.
+	const steamRequestTimeoutMs = 20000;
+	// Set when Steam answered with no games at all: signed out of the Steam
+	// store in this browser (see refreshSteamData).
+	let steamLooksSignedOut = false;
 	let steamSets = null;
 
 	function saveSteamData(data) {
@@ -515,12 +520,18 @@ Copyright 2026, SentaiBrad
 				method: "GET",
 				url: "https://store.steampowered.com/dynamicstore/userdata/?t=" + getUnixTimestamp(),
 				responseType: "json",
+				timeout: steamRequestTimeoutMs,
 				onload: function(response) {
-					if (response.status === 200) {
-						resolve(response.response);
-					} else {
+					if (response.status !== 200) {
 						handleError(response);
+						return;
 					}
+					// Some managers hand JSON over as text.
+					let data = response.response;
+					if (typeof data === "string" || !data) {
+						try { data = JSON.parse(response.responseText); } catch { data = null; }
+					}
+					resolve(data);
 				},
 				onerror: handleError,
 				onabort: function() {
@@ -528,17 +539,35 @@ Copyright 2026, SentaiBrad
 					debugLog.add("error", "Steam profile data request aborted");
 					reject();
 				},
+				ontimeout: function() {
+					debugState.steam_fetch = `timed out after ${steamRequestTimeoutMs / 1000} s`;
+					debugLog.add("error", `Steam profile data request ${debugState.steam_fetch}`);
+					reject();
+				},
 			});
 		});
 	}
 
+	// Signed out of the Steam store, Steam still answers, with every list empty
+	// (checked 2026-11-01). Saving that would replace the library with nothing,
+	// so an answer with no owned games or packages is never saved: the saved
+	// data stays and the panel asks to sign in. Fresh data re-marks the page.
 	function refreshSteamData() {
 		return fetchSteamData().then((data) => {
 			const owned = data?.rgOwnedApps?.length ?? 0;
-			debugState.steam_fetch = `ok at ${new Date().toLocaleTimeString()}: ${owned} owned apps`;
-			debugLog.add("steam", `profile data fetched: ${owned} owned apps, ${data?.rgOwnedPackages?.length ?? 0} owned packages, ${data?.rgWishlist?.length ?? 0} wishlisted`);
-			if (!owned) debugLog.add("error", "Steam returned 0 owned apps. Usually this means you're not signed in at store.steampowered.com in this browser.");
+			const packages = data?.rgOwnedPackages?.length ?? 0;
+			const time = new Date().toLocaleTimeString();
+			if (!owned && !packages) {
+				steamLooksSignedOut = true;
+				debugState.steam_fetch = `Steam answered with no games at ${time}: probably signed out of the Steam store in this browser; saved data kept`;
+				debugLog.add("error", "Steam answered with no owned games or packages, which usually means you're signed out at store.steampowered.com in this browser. Your saved Steam data was kept.");
+				return;
+			}
+			steamLooksSignedOut = false;
+			debugState.steam_fetch = `ok at ${time}: ${owned} owned apps`;
+			debugLog.add("steam", `profile data fetched: ${owned} owned apps, ${packages} owned packages, ${data?.rgWishlist?.length ?? 0} wishlisted`);
 			saveSteamData(data);
+			remarkPage();
 		});
 	}
 
@@ -581,6 +610,7 @@ Copyright 2026, SentaiBrad
 				method: "GET",
 				url: url,
 				responseType: responseType,
+				timeout: steamRequestTimeoutMs,
 				onload: (response) => resolve(response.status === 200 ? response : null),
 				onerror: () => resolve(null),
 				onabort: () => resolve(null),
@@ -1214,10 +1244,25 @@ Copyright 2026, SentaiBrad
 
 	const markingClasses = ["bh_owned", "bh_wished", "bh_ignored", "bh_partial", "bh_pack"];
 
+	// The lookup result each marked element was marked from, so its marking can
+	// be applied again when fresh Steam data arrives. A WeakMap, so nothing is
+	// added to the page and removed elements are forgotten.
+	const markedMatches = new WeakMap();
+
 	// Marks an element from a lookup result (a Steam game, package or pack) and
 	// adds a Steam button through addLink(link), which places it for the site.
 	// A pack's button opens the list of games inside.
 	function markMatch(element, match, addLink) {
+		applyMarking(element, match);
+		if (addLink && !element.querySelector(".bh_steamlink")) {
+			addLink(match.type === "pack" ? createPackButton(match.members) : createSteamLink(match.type, match.id));
+		}
+	}
+
+	// The marking classes (and a pack's label) for a lookup result, from the
+	// Steam data saved now.
+	function applyMarking(element, match) {
+		markedMatches.set(element, match);
 		element.classList.remove(...markingClasses);
 		element.style.removeProperty("--bh-label");
 		let css;
@@ -1235,9 +1280,20 @@ Copyright 2026, SentaiBrad
 			element.classList.add(css);
 			noteMarked();
 		}
-		if (addLink && !element.querySelector(".bh_steamlink")) {
-			addLink(match.type === "pack" ? createPackButton(match.members) : createSteamLink(match.type, match.id));
+	}
+
+	// After fresh Steam data, every item already handled on the page is marked
+	// again: one handled before the data arrived (a first install, cleared
+	// data) would otherwise stay unmarked until the page was reloaded.
+	function remarkPage() {
+		let remarked = 0;
+		for (const element of document.querySelectorAll(".bh_already_processed")) {
+			const match = markedMatches.get(element);
+			if (!match) continue;
+			applyMarking(element, match);
+			remarked++;
 		}
+		if (remarked) debugLog.add("steam", `fresh Steam data: marking checked again on ${remarked} items`);
 	}
 
 	function markElements({
@@ -1273,17 +1329,11 @@ Copyright 2026, SentaiBrad
 
 				const {app, sub} = parseStringForSteamId(data);
 				if (app || sub) {
-					recordItem(item.alt || item.title || item.textContent || data, "Steam ID on the page", app ? {type: "app", id: app} : {type: "sub", id: sub});
+					const match = app ? {type: "app", id: app} : {type: "sub", id: sub};
+					recordItem(item.alt || item.title || item.textContent || data, "Steam ID on the page", match);
 					itemsWithSteamId++;
-					closest.classList.remove("bh_owned", "bh_wished", "bh_ignored");
-					const cssClass = getClassForAppId(app) || getClassForSubId(sub);
-					if (cssClass) {
-						closest.classList.add(cssClass);
-						noteMarked();
-					}
-
-					const steamLink = createSteamLink(app ? "app" : "sub", app || sub);
-					addSteamLinkFunc?.(item, closest, steamLink)
+					applyMarking(closest, match);
+					addSteamLinkFunc?.(item, closest, createSteamLink(match.type, match.id));
 				}
 			}
 		}
@@ -2105,6 +2155,8 @@ Copyright 2026, SentaiBrad
 		.foot { display: flex; justify-content: space-between; padding: 0.4em 0.8em; border-top: 1px solid #2a475e; font-size: 0.92em; }
 		.copied { color: #22e07a; }
 		.problem { color: #ff6b6b; font-weight: bold; }
+		.warn { color: #e5b143; }
+		div.warn { margin-bottom: 0.4em; }
 		.row.problem > span:last-child { font-weight: normal; white-space: nowrap; }
 	`;
 
@@ -2115,6 +2167,7 @@ Copyright 2026, SentaiBrad
 			<span class="wished" id="bar-wished"></span>
 			<span class="ignored" id="bar-ignored"></span>
 			<span class="note" id="bar-age"></span>
+			<span class="warn" id="bar-signin" hidden>sign in to Steam</span>
 			<span class="problem" id="bar-problem" hidden></span>
 			<span class="icon">${panelIcons.expand}</span>
 		</div>
@@ -2127,6 +2180,7 @@ Copyright 2026, SentaiBrad
 			</div>
 			<div class="body" id="view-main">
 				<div class="row problem" id="problem" hidden><span id="problem-text">Something went wrong</span><span><span class="link" id="problem-details" role="button" tabindex="0">details</span> · <span class="link" id="problem-report" role="button" tabindex="0">report</span></span></div>
+				<div class="warn" id="signin" hidden>Steam answered with no games: you're probably signed out. Sign in at <a class="link" href="https://store.steampowered.com/login/" target="_blank" rel="noopener">store.steampowered.com</a>, then click refresh. Your saved data is kept.</div>
 				<div class="row"><span>Steam data</span><span><span id="age"></span> · <span class="link" id="refresh" role="button" tabindex="0">refresh</span></span></div>
 				<div class="row"><span class="owned">Owned</span><span id="owned"></span></div>
 				<div class="row"><span class="wished">Wishlist</span><span id="wishlist"></span></div>
@@ -2226,6 +2280,8 @@ Copyright 2026, SentaiBrad
 				$("#bar-wished").textContent = `${sets.wishlist.size.toLocaleString()} wishlist`;
 				$("#bar-ignored").textContent = `${sets.ignoredApps.size.toLocaleString()} ignored`;
 				$("#bar-age").textContent = steamDataAge() ? `fetched ${steamDataAge() === "just now" ? "just now" : `${steamDataAge()} ago`}` : "never fetched";
+				$("#bar-signin").hidden = !steamLooksSignedOut;
+				$("#signin").hidden = !steamLooksSignedOut;
 				$("#bar-problem").hidden = !errorRecords.length;
 				$("#bar-problem").textContent = plural(errorRecords.length, "error");
 				$("#problem").hidden = !errorRecords.length;

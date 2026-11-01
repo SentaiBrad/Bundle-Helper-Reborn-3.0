@@ -1,5 +1,13 @@
 # Changelog
 
+## 3.0.42
+
+Steam data reliability:
+
+- **Your saved Steam library is no longer wiped when you're signed out of Steam.** Signed out, Steam still answers, but with every list empty, and the script used to save that over your library, so nothing was marked until you signed in and refreshed. Now an answer with no owned games or packages is never saved: your saved data is kept, and the panel and the minimized bar ask you to sign in at store.steampowered.com.
+- **Pages are marked as soon as your Steam data arrives.** Items on the page before the data came in (on a first install, after clearing saved data, or on a slow connection) used to stay unmarked until the page was reloaded. Now everything on the page is marked again when fresh data is saved.
+- **Steam requests time out after 20 seconds** instead of waiting forever, and the debug report says so.
+
 ## 3.0.41
 
 Error handling, so a problem in the script never breaks the site and is easy to report:
