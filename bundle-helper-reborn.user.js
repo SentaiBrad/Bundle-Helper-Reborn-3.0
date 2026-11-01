@@ -2,7 +2,7 @@
 // @name            Bundle Helper Reborn 3.0
 // @namespace       https://github.com/SentaiBrad/
 // @author          SentaiBrad
-// @version         3.0.39
+// @version         3.0.40
 // @description     Marks the Steam games you own, have wishlisted or ignored on bundle and game store sites (Humble Bundle, Fanatical, Eneba and more), including packs and bundles, with a Steam button on each game.
 // @match           *://dailyindiegame.com/*
 // @match           *://old.reddit.com/*
@@ -71,8 +71,8 @@ Copyright 2026, SentaiBrad
 	// it. Saved values are checked against the list when loaded, so an old or
 	// damaged value falls back to the default instead of breaking anything.
 
-	const settings_key = "bh_settings";
-	const setting_definitions = [
+	const settingsKey = "bh_settings";
+	const settingDefinitions = [
 		{id: "panel_size", group: "Panel", label: "Size", type: "choice", default: "auto",
 			choices: [["auto", "Auto"], ["small", "Small"], ["normal", "Normal"], ["large", "Large"], ["4k", "4K"]]},
 		{id: "panel_corner", group: "Panel", label: "Corner", type: "choice", default: "left",
@@ -84,17 +84,17 @@ Copyright 2026, SentaiBrad
 
 	// Text scale for each panel size. "auto" picks one from the window width
 	// (which already includes the operating system's display scaling).
-	const panel_scales = {small: 0.9, normal: 1, large: 1.25, "4k": 1.6};
+	const panelScales = {small: 0.9, normal: 1, large: 1.25, "4k": 1.6};
 
-	let current_settings = null;
+	let currentSettings = null;
 
 	function loadSettings() {
-		const saved = GM_getValue(settings_key, {});
-		current_settings = {};
-		for (const definition of setting_definitions) {
-			current_settings[definition.id] = isValidSetting(definition, saved?.[definition.id]) ? saved[definition.id] : definition.default;
+		const saved = GM_getValue(settingsKey, {});
+		currentSettings = {};
+		for (const definition of settingDefinitions) {
+			currentSettings[definition.id] = isValidSetting(definition, saved?.[definition.id]) ? saved[definition.id] : definition.default;
 		}
-		return current_settings;
+		return currentSettings;
 	}
 
 	function isValidSetting(definition, value) {
@@ -103,16 +103,16 @@ Copyright 2026, SentaiBrad
 	}
 
 	function getSetting(id) {
-		return (current_settings ?? loadSettings())[id];
+		return (currentSettings ?? loadSettings())[id];
 	}
 
 	function setSetting(id, value) {
-		const definition = setting_definitions.find((d) => d.id === id);
+		const definition = settingDefinitions.find((d) => d.id === id);
 		if (!definition || !isValidSetting(definition, value)) return;
 		getSetting(id);
-		current_settings[id] = value;
-		GM_setValue(settings_key, current_settings);
-		debug_log.add("settings", `${definition.label} = ${value}`);
+		currentSettings[id] = value;
+		GM_setValue(settingsKey, currentSettings);
+		debugLog.add("settings", `${definition.label} = ${value}`);
 		if (id === "use_api_key") {
 			// Another account's data must never carry over: forget everything
 			// saved and fetch the Steam data again.
@@ -124,17 +124,17 @@ Copyright 2026, SentaiBrad
 
 	function panelScale() {
 		const size = getSetting("panel_size");
-		if (size !== "auto") return panel_scales[size];
-		if (window.innerWidth >= 2400) return panel_scales["4k"];
-		if (window.innerWidth >= 1600) return panel_scales.large;
-		return panel_scales.normal;
+		if (size !== "auto") return panelScales[size];
+		if (window.innerWidth >= 2400) return panelScales["4k"];
+		if (window.innerWidth >= 1600) return panelScales.large;
+		return panelScales.normal;
 	}
 
 	// Page-wide effects of the settings; the panel applies its own on update.
 	function applySettings() {
 		document.documentElement.classList.toggle("bh_no_card_labels", !getSetting("card_labels"));
-		the_panel?.applyLayout();
-		the_panel?.update();
+		thePanel?.applyLayout();
+		thePanel?.update();
 	}
 
 	//////////////////////////////////////////////////
@@ -184,19 +184,19 @@ Copyright 2026, SentaiBrad
 	// stops changing (Fanatical) still gets scanned regularly.
 	function throttle(callback, interval = 1000) {
 		let timer = null;
-		let last_run = 0;
+		let lastRun = 0;
 		return function() {
 			if (timer) return;
-			const wait = Math.max(150, last_run + interval - Date.now());
+			const wait = Math.max(150, lastRun + interval - Date.now());
 			timer = setTimeout(() => {
 				timer = null;
-				last_run = Date.now();
+				lastRun = Date.now();
 				callback();
 			}, wait);
 		};
 	}
 
-	const active_mutation_observers = [];
+	const activeMutationObservers = [];
 
 	// Runs callback now and again whenever rootNode or anything inside it
 	// changes, at most once per `interval` ms. Errors are logged, not thrown.
@@ -206,12 +206,12 @@ Copyright 2026, SentaiBrad
 			try {
 				callback();
 			} catch (error) {
-				debug_log.add("error", `page scan failed: ${error?.stack ?? error}`);
+				debugLog.add("error", `page scan failed: ${error?.stack ?? error}`);
 			}
 			const took = Math.round(performance.now() - started);
-			scan_stats.count++;
-			scan_stats.total_ms += took;
-			scan_stats.slowest_ms = Math.max(scan_stats.slowest_ms, took);
+			scanStats.count++;
+			scanStats.total_ms += took;
+			scanStats.slowest_ms = Math.max(scanStats.slowest_ms, took);
 		}, interval);
 		func();
 		const observer = new MutationObserver(func);
@@ -221,7 +221,7 @@ Copyright 2026, SentaiBrad
 			attributes: true,
 			characterData: false,
 		});
-		active_mutation_observers.push(observer);
+		activeMutationObservers.push(observer);
 		return observer;
 	}
 
@@ -234,7 +234,7 @@ Copyright 2026, SentaiBrad
 
 	// Logs failures of a lookup-and-mark chain instead of losing them.
 	function logFailure(where) {
-		return (error) => debug_log.add("error", `${where}: ${error?.stack ?? error}`);
+		return (error) => debugLog.add("error", `${where}: ${error?.stack ?? error}`);
 	}
 
 	// Text sitting directly inside an element, ignoring text in its child
@@ -254,8 +254,8 @@ Copyright 2026, SentaiBrad
 	// Emulates the "x" flag for RegExp.
 	// It's also known as "verbose" flag, as it allows whitespace and comments inside the regex.
 	// It will probably break if the original string contains "$".
-	function reX(re_string) {
-		const raw = re_string.raw[0];
+	function reX(reString) {
+		const raw = reString.raw[0];
 		let s = raw;
 		// Removing comments.
 		s = s.replace(/(?<!\\)\/\/.*$/gm, "");
@@ -264,12 +264,12 @@ Copyright 2026, SentaiBrad
 		return new RegExp(s);
 	}
 
-	const re_app = reX`
+	const reApp = reX`
 		( /app/ | /apps/ | appid= )
 		(?<id>[0-9]+)
 		\b
 	`;
-	const re_sub = reX`
+	const reSub = reX`
 		( /sub/ | /subs/ )
 		(?<id>[0-9]+)
 		\b
@@ -277,23 +277,23 @@ Copyright 2026, SentaiBrad
 
 	// Parses a string and tries to extract the app id or the sub id.
 	function parseStringForSteamId(s) {
-		const match_app = re_app.exec(s);
-		const match_sub = re_sub.exec(s);
+		const matchApp = reApp.exec(s);
+		const matchSub = reSub.exec(s);
 
-		if (match_app && match_sub) {
-			console.warn("The string matched both app id and sub id. This is likely a mistake.", s, match_app, match_sub);
+		if (matchApp && matchSub) {
+			console.warn("The string matched both app id and sub id. This is likely a mistake.", s, matchApp, matchSub);
 		}
 
 		return {
-			app: Number(match_app?.groups.id ?? 0),
-			sub: Number(match_sub?.groups.id ?? 0),
+			app: Number(matchApp?.groups.id ?? 0),
+			sub: Number(matchSub?.groups.id ?? 0),
 		};
 	}
 
 	//////////////////////////////////////////////////
 	// Debug log and state (shown by the bug button in the panel)
 
-	const debug_log = {
+	const debugLog = {
 		max_entries: 300,
 		entries: [],
 		// category: "steam", "lookup", "site" or "error"
@@ -308,7 +308,7 @@ Copyright 2026, SentaiBrad
 		},
 	};
 
-	const debug_state = {
+	const debugState = {
 		site_handler: "",
 		steam_fetch: "not fetched on this page (saved data used)",
 		url_at_start: location.href,
@@ -321,9 +321,9 @@ Copyright 2026, SentaiBrad
 
 	// Call whenever an item gets marked; records how long the first one took.
 	function noteMarked() {
-		if (debug_state.first_mark_ms === null) {
-			debug_state.first_mark_ms = Math.round(performance.now());
-			debug_log.add("site", `first item marked ${debug_state.first_mark_ms} ms after the page started loading`);
+		if (debugState.first_mark_ms === null) {
+			debugState.first_mark_ms = Math.round(performance.now());
+			debugLog.add("site", `first item marked ${debugState.first_mark_ms} ms after the page started loading`);
 		}
 	}
 
@@ -332,31 +332,31 @@ Copyright 2026, SentaiBrad
 
 	// Every item the script looked at: its name on the page, where its Steam
 	// data came from, and the lookup result (null when nothing matched).
-	const page_items = [];
+	const pageItems = [];
 
 	// The same item seen again (a site redrawing its cards) is listed once.
 	function recordItem(name, source, match) {
 		const item = {name: String(name ?? "").trim().slice(0, 120) || "(no name)", source, match};
 		const key = `${item.name}\n${source}\n${match ? `${match.type} ${match.id ?? match.members?.length}` : "miss"}`;
-		if (recorded_items.has(key)) return;
-		recorded_items.add(key);
-		page_items.push(item);
+		if (recordedItems.has(key)) return;
+		recordedItems.add(key);
+		pageItems.push(item);
 		schedulePanelUpdate();
 	}
-	const recorded_items = new Set();
+	const recordedItems = new Set();
 
 	// Requests made on this page, by where they went.
-	const request_counts = {steam_search: 0, steam_app_details: 0, steam_package_details: 0, fanatical: 0, saved: 0};
+	const requestCounts = {steam_search: 0, steam_app_details: 0, steam_package_details: 0, fanatical: 0, saved: 0};
 
 	// How many items each site rule found on its latest scan. A rule that
 	// suddenly finds 0 usually means the site changed its layout.
-	const rule_counts = new Map();
+	const ruleCounts = new Map();
 
 	function noteRule(rule, found) {
-		rule_counts.set(rule, found);
+		ruleCounts.set(rule, found);
 	}
 
-	const scan_stats = {count: 0, total_ms: 0, slowest_ms: 0, last: null};
+	const scanStats = {count: 0, total_ms: 0, slowest_ms: 0, last: null};
 
 	// The state of one item as shown in the debug view: a marking class (for
 	// the colored dot) and a short description.
@@ -374,25 +374,25 @@ Copyright 2026, SentaiBrad
 	//////////////////////////////////////////////////
 	// Steam library data (owned, wishlisted, ignored), saved for 24 hours
 
-	const steam_data_key = "bh_profile_data";
-	const steam_data_time_key = "bh_profile_time";
-	const steam_data_max_age = 60 * 60 * 24;  // 24 hours
-	let steam_sets = null;
+	const steamDataKey = "bh_profile_data";
+	const steamDataTimeKey = "bh_profile_time";
+	const steamDataMaxAge = 60 * 60 * 24;  // 24 hours
+	let steamSets = null;
 
 	function saveSteamData(data) {
-		steam_sets = null;
+		steamSets = null;
 		data.rgCurations = {};
 		data.rgCurators = {};
 		data.rgCuratorsIgnored = [];
 		data.rgRecommendedApps = [];
 		data.rgRecommendedTags = [];
-		GM_setValue(steam_data_key, data);
-		GM_setValue(steam_data_time_key, getUnixTimestamp());
+		GM_setValue(steamDataKey, data);
+		GM_setValue(steamDataTimeKey, getUnixTimestamp());
 	}
 
 	function steamDataAge() {
 		const now = getUnixTimestamp();
-		const cached = GM_getValue(steam_data_time_key, 0);
+		const cached = GM_getValue(steamDataTimeKey, 0);
 		if (!cached) {
 			return "";
 		}
@@ -401,15 +401,15 @@ Copyright 2026, SentaiBrad
 
 	function isSteamDataOld() {
 		const now = getUnixTimestamp();
-		const cached = GM_getValue(steam_data_time_key, 0);
-		return now - cached > steam_data_max_age;
+		const cached = GM_getValue(steamDataTimeKey, 0);
+		return now - cached > steamDataMaxAge;
 	}
 
 	function fetchSteamData() {
 		return new Promise((resolve, reject) => {
 			function handleError(response) {
-				debug_state.steam_fetch = `failed: HTTP ${response?.status ?? "none"} ${response?.statusText ?? ""}`.trim();
-				debug_log.add("error", `Steam profile data request ${debug_state.steam_fetch}`);
+				debugState.steam_fetch = `failed: HTTP ${response?.status ?? "none"} ${response?.statusText ?? ""}`.trim();
+				debugLog.add("error", `Steam profile data request ${debugState.steam_fetch}`);
 				reject();
 			}
 
@@ -426,8 +426,8 @@ Copyright 2026, SentaiBrad
 				},
 				onerror: handleError,
 				onabort: function() {
-					debug_state.steam_fetch = "aborted";
-					debug_log.add("error", "Steam profile data request aborted");
+					debugState.steam_fetch = "aborted";
+					debugLog.add("error", "Steam profile data request aborted");
 					reject();
 				},
 			});
@@ -437,9 +437,9 @@ Copyright 2026, SentaiBrad
 	function refreshSteamData() {
 		return fetchSteamData().then((data) => {
 			const owned = data?.rgOwnedApps?.length ?? 0;
-			debug_state.steam_fetch = `ok at ${new Date().toLocaleTimeString()}: ${owned} owned apps`;
-			debug_log.add("steam", `profile data fetched: ${owned} owned apps, ${data?.rgOwnedPackages?.length ?? 0} owned packages, ${data?.rgWishlist?.length ?? 0} wishlisted`);
-			if (!owned) debug_log.add("error", "Steam returned 0 owned apps. Usually this means you're not signed in at store.steampowered.com in this browser.");
+			debugState.steam_fetch = `ok at ${new Date().toLocaleTimeString()}: ${owned} owned apps`;
+			debugLog.add("steam", `profile data fetched: ${owned} owned apps, ${data?.rgOwnedPackages?.length ?? 0} owned packages, ${data?.rgWishlist?.length ?? 0} wishlisted`);
+			if (!owned) debugLog.add("error", "Steam returned 0 owned apps. Usually this means you're not signed in at store.steampowered.com in this browser.");
 			saveSteamData(data);
 		});
 	}
@@ -453,9 +453,9 @@ Copyright 2026, SentaiBrad
 	}
 
 	function getSteamSets() {
-		if (!steam_sets) {
-			const data = GM_getValue(steam_data_key, {});
-			steam_sets = {
+		if (!steamSets) {
+			const data = GM_getValue(steamDataKey, {});
+			steamSets = {
 				ignoredPackages: new Set(data.rgIgnoredPackages),
 				ownedApps: new Set(data.rgOwnedApps),
 				ownedPackages: new Set(data.rgOwnedPackages),
@@ -463,15 +463,15 @@ Copyright 2026, SentaiBrad
 				ignoredApps: new Set(Object.keys(data.rgIgnoredApps ?? {}).map((key) => Number(key))),
 			};
 		}
-		return steam_sets;
+		return steamSets;
 	}
 
 	// GET from store.steampowered.com. Resolves to the response, or null on a
 	// network/HTTP error (so the caller knows not to cache a miss).
 	function steamGet(url, responseType) {
-		if (url.includes("/search/suggest")) request_counts.steam_search++;
-		else if (url.includes("/api/appdetails")) request_counts.steam_app_details++;
-		else if (url.includes("/api/packagedetails")) request_counts.steam_package_details++;
+		if (url.includes("/search/suggest")) requestCounts.steam_search++;
+		else if (url.includes("/api/appdetails")) requestCounts.steam_app_details++;
+		else if (url.includes("/api/packagedetails")) requestCounts.steam_package_details++;
 		return new Promise((resolve) => {
 			GM_xmlhttpRequest({
 				method: "GET",
@@ -495,7 +495,7 @@ Copyright 2026, SentaiBrad
 	//   - Never log it, never put it in the debug report, never send it anywhere else.
 	//   - Every feature must still work without a key.
 
-	const steam_api = {
+	const steamApi = {
 		storage_name: "bh_steam_api_key",
 		// Filled in by future API calls; shown in the debug report's Steam API section.
 		stats: {requests: 0, failures: 0, last_request: "", last_error: ""},
@@ -507,7 +507,7 @@ Copyright 2026, SentaiBrad
 				this.stats.failures++;
 				this.stats.last_error = `${new Date().toLocaleTimeString()} ${what}: ${error ?? "failed"}`;
 			}
-			debug_log.add(ok ? "api" : "error", `Steam API ${what}${ok ? "" : ": " + (error ?? "failed")}`);
+			debugLog.add(ok ? "api" : "error", `Steam API ${what}${ok ? "" : ": " + (error ?? "failed")}`);
 		},
 		getKey() {
 			return String(GM_getValue(this.storage_name, "") || "");
@@ -542,7 +542,7 @@ Copyright 2026, SentaiBrad
 	}
 
 	// Greek letters used as words, e.g. METAL GEAR SOLID Δ, NINJA GAIDEN Σ.
-	const greek_letter_names = {
+	const greekLetterNames = {
 		"α": "alpha", "β": "beta", "γ": "gamma", "δ": "delta", "ε": "epsilon",
 		"ζ": "zeta", "η": "eta", "θ": "theta", "λ": "lambda", "μ": "mu",
 		"π": "pi", "σ": "sigma", "ς": "sigma", "τ": "tau", "φ": "phi",
@@ -550,7 +550,7 @@ Copyright 2026, SentaiBrad
 	};
 	function spellGreek(title) {
 		return title.replace(/[\u0370-\u03ff]/g, (ch) => {
-			const name = greek_letter_names[ch.toLowerCase()];
+			const name = greekLetterNames[ch.toLowerCase()];
 			return name ? " " + name + " " : ch;
 		});
 	}
@@ -560,23 +560,23 @@ Copyright 2026, SentaiBrad
 	}
 
 	// Roman numerals as whole words, never the first word ("X-COM", "V Rising").
-	const roman_numerals = {
+	const romanNumerals = {
 		"ii": "2", "iii": "3", "iv": "4", "v": "5", "vi": "6", "vii": "7", "viii": "8",
 		"ix": "9", "x": "10", "xi": "11", "xii": "12", "xiii": "13", "xiv": "14", "xv": "15",
 	};
 	function romanToDigits(normalized) {
-		return normalized.split(" ").map((word, i) => (i > 0 && roman_numerals[word]) || word).join(" ");
+		return normalized.split(" ").map((word, i) => (i > 0 && romanNumerals[word]) || word).join(" ");
 	}
 
 	// Trailing edition words, removed only as the last attempt.
-	const edition_suffix = /(\s+(definitive|ultimate|complete|deluxe|special|enhanced|anniversary|gold|premium|standard|digital deluxe|game of the year|goty|collectors|directors cut)(\s+edition)?|\s+(edition|remastered|remaster|hd|goty))+$/;
+	const editionSuffix = /(\s+(definitive|ultimate|complete|deluxe|special|enhanced|anniversary|gold|premium|standard|digital deluxe|game of the year|goty|collectors|directors cut)(\s+edition)?|\s+(edition|remastered|remaster|hd|goty))+$/;
 	function removeEdition(normalized) {
-		return normalized.replace(edition_suffix, "").trim();
+		return normalized.replace(editionSuffix, "").trim();
 	}
 
 	// Each attempt turns a raw title into a comparison key. Attempts run in
 	// order and only the first one that finds exactly one Steam result wins.
-	const title_match_attempts = [
+	const titleMatchAttempts = [
 		(t) => normalizeTitle(t),
 		(t) => normalizeTitle(spellGreek(t)),
 		(t) => normalizeTitle(removeBrackets(spellGreek(t))),
@@ -586,7 +586,7 @@ Copyright 2026, SentaiBrad
 
 	// candidates: [{appid, title}] from one Steam search. Returns an appid or 0.
 	function pickSteamMatch(title, candidates) {
-		for (const [i, makeKey] of title_match_attempts.entries()) {
+		for (const [i, makeKey] of titleMatchAttempts.entries()) {
 			const key = makeKey(title);
 			if (!key) continue;
 			const ids = new Set(candidates.filter((c) => makeKey(c.title) === key).map((c) => c.appid));
@@ -601,24 +601,24 @@ Copyright 2026, SentaiBrad
 	}
 
 	// Title lookups are saved between visits. Matches are kept 30 days and misses
-	// 1 day. Changing saved_lookups_version discards everything (e.g. after the
+	// 1 day. Changing savedLookupsVersion discards everything (e.g. after the
 	// matching rules change, so old misses get another chance).
-	const saved_lookups_key = "bh_title_cache";
-	const saved_lookups_version = 5;
-	const saved_match_days = 30;
-	const saved_miss_days = 1;
-	let saved_lookups = null;
+	const savedLookupsKey = "bh_title_cache";
+	const savedLookupsVersion = 5;
+	const savedMatchDays = 30;
+	const savedMissDays = 1;
+	let savedLookups = null;
 
 	function loadSavedLookups() {
-		if (saved_lookups) return saved_lookups;
-		const stored = GM_getValue(saved_lookups_key, null);
-		saved_lookups = (stored && stored.version === saved_lookups_version && stored.entries) ? stored.entries : {};
+		if (savedLookups) return savedLookups;
+		const stored = GM_getValue(savedLookupsKey, null);
+		savedLookups = (stored && stored.version === savedLookupsVersion && stored.entries) ? stored.entries : {};
 		const now = getUnixTimestamp();
-		for (const [key, entry] of Object.entries(saved_lookups)) {
-			const max_age = (entry?.days ?? (entry?.match ? saved_match_days : saved_miss_days)) * 86400;
-			if (!entry || !(now - entry.time <= max_age)) delete saved_lookups[key];
+		for (const [key, entry] of Object.entries(savedLookups)) {
+			const maxAge = (entry?.days ?? (entry?.match ? savedMatchDays : savedMissDays)) * 86400;
+			if (!entry || !(now - entry.time <= maxAge)) delete savedLookups[key];
 		}
-		return saved_lookups;
+		return savedLookups;
 	}
 
 	function clearSavedMisses() {
@@ -632,15 +632,15 @@ Copyright 2026, SentaiBrad
 	}
 
 	function clearSavedLookups() {
-		saved_lookups = {};
+		savedLookups = {};
 		storeSavedLookups();
 	}
 
 	function storeSavedLookups() {
-		GM_setValue(saved_lookups_key, {version: saved_lookups_version, entries: saved_lookups});
+		GM_setValue(savedLookupsKey, {version: savedLookupsVersion, entries: savedLookups});
 	}
 
-	const pending_lookups = new Map();
+	const pendingLookups = new Map();
 
 	// Steam's search suggestions (games only). Resolves to [{appid, title}] or null on error.
 	async function searchSteamApps(term) {
@@ -653,8 +653,8 @@ Copyright 2026, SentaiBrad
 		const candidates = [];
 		for (const result of doc.querySelectorAll("a[data-ds-appid]")) {
 			const appid = Number((result.dataset.dsAppid ?? "").split(",")[0]);
-			const result_title = result.querySelector(".match_name")?.textContent?.trim() ?? "";
-			if (appid && result_title) candidates.push({appid, title: result_title});
+			const resultTitle = result.querySelector(".match_name")?.textContent?.trim() ?? "";
+			if (appid && resultTitle) candidates.push({appid, title: resultTitle});
 		}
 		return candidates;
 	}
@@ -673,7 +673,7 @@ Copyright 2026, SentaiBrad
 		}
 		const details = json?.[appid];
 		if (!details?.success) {
-			debug_log.add("lookup", `app details for ${appid}: Steam answered success=${details?.success ?? "missing"}`);
+			debugLog.add("lookup", `app details for ${appid}: Steam answered success=${details?.success ?? "missing"}`);
 		}
 		const packages = [];
 		for (const group of details?.data?.package_groups ?? []) {
@@ -689,9 +689,9 @@ Copyright 2026, SentaiBrad
 	// Finds the Steam game, or failing that the Steam package, for a store title.
 	// Resolves to {type: "app"|"sub", id} or null. Only complete answers are cached.
 	async function lookupTitle(title) {
-		let had_error = false;
+		let hadError = false;
 
-		const log = (...args) => debug_log.add("lookup", JSON.stringify(title) + " " + args.map((a) => typeof a === "string" ? a : JSON.stringify(a)).join(" "));
+		const log = (...args) => debugLog.add("lookup", JSON.stringify(title) + " " + args.map((a) => typeof a === "string" ? a : JSON.stringify(a)).join(" "));
 		const candidates = await searchSteamApps(title);
 		if (candidates === null) { log("Steam search failed (network or HTTP error), will retry next visit"); return {result: null, cacheable: false}; }
 		log("search results:", candidates.map((c) => `${c.appid} ${c.title}`));
@@ -714,28 +714,28 @@ Copyright 2026, SentaiBrad
 		if (!games.length && base && normalizeTitle(base) !== normalizeTitle(title)) {
 			const more = await searchSteamApps(base);
 			log("package fallback, searched", JSON.stringify(base), "->", more === null ? "ERROR" : more.map((c) => `${c.appid} ${c.title}`));
-			if (more === null) had_error = true;
+			if (more === null) hadError = true;
 			else addGames(more);
 		}
 		// Steam's search can't find "FEAR" but finds "F.E.A.R.". For a single
 		// all-caps word (FEAR, STALKER, QUBE), also try it spelled with dots.
 		if (!games.length && /^[A-Z]{2,8}$/.test(base)) {
-			const dotted_term = base.split("").join(".") + ".";
-			const dotted = await searchSteamApps(dotted_term);
-			log("package fallback, searched", JSON.stringify(dotted_term), "->", dotted === null ? "ERROR" : dotted.map((c) => `${c.appid} ${c.title}`));
-			if (dotted === null) had_error = true;
+			const dottedTerm = base.split("").join(".") + ".";
+			const dotted = await searchSteamApps(dottedTerm);
+			log("package fallback, searched", JSON.stringify(dottedTerm), "->", dotted === null ? "ERROR" : dotted.map((c) => `${c.appid} ${c.title}`));
+			if (dotted === null) hadError = true;
 			else addGames(dotted);
 		}
 		log("games whose name starts the title:", games);
 		for (const game of games.slice(0, 2)) {
 			const packages = await getSteamPackages(game);
 			log("packages of", game, "->", packages === null ? "ERROR" : packages.map((p) => `${p.appid} ${p.title}`));
-			if (packages === null) { had_error = true; continue; }
+			if (packages === null) { hadError = true; continue; }
 			const packageid = pickSteamMatch(title, packages);
 			if (packageid) { log("matched package", packageid); return {result: {type: "sub", id: packageid}, cacheable: true}; }
 		}
-		log(had_error ? "no match (an error occurred, not saved)" : "no match (saved as a miss for 1 day)");
-		return {result: null, cacheable: !had_error};
+		log(hadError ? "no match (an error occurred, not saved)" : "no match (saved as a miss for 1 day)");
+		return {result: null, cacheable: !hadError};
 	}
 
 	// Resolves to {type: "app"|"sub", id} or null.
@@ -747,21 +747,21 @@ Copyright 2026, SentaiBrad
 	function cachedLookup(key, description, lookup, days) {
 		const cache = loadSavedLookups();
 		if (cache[key]) {
-			request_counts.saved++;
-			debug_log.add("lookup", `${description} saved result: ${describeMatch(cache[key].match)}`);
+			requestCounts.saved++;
+			debugLog.add("lookup", `${description} saved result: ${describeMatch(cache[key].match)}`);
 			return Promise.resolve(cache[key].match);
 		}
-		if (pending_lookups.has(key)) return pending_lookups.get(key);
+		if (pendingLookups.has(key)) return pendingLookups.get(key);
 
-		const running = lookup().then(({result, cacheable, days: result_days}) => {
+		const running = lookup().then(({result, cacheable, days: resultDays}) => {
 			if (cacheable) {
 				cache[key] = {match: result, time: getUnixTimestamp()};
-				if (days ?? result_days) cache[key].days = days ?? result_days;
+				if (days ?? resultDays) cache[key].days = days ?? resultDays;
 				storeSavedLookups();
 			}
 			return result;
-		}).finally(() => pending_lookups.delete(key));
-		pending_lookups.set(key, running);
+		}).finally(() => pendingLookups.delete(key));
+		pendingLookups.set(key, running);
 		return running;
 	}
 
@@ -837,13 +837,13 @@ Copyright 2026, SentaiBrad
 				}
 				return Boolean(json?.[id]?.success);
 			};
-			const is_package = await exists(`https://store.steampowered.com/api/packagedetails?packageids=${id}&cc=us`);
-			if (is_package === null) return {result: null, cacheable: false};
-			if (is_package) return {result: given, cacheable: true};
-			const is_game = await exists(`https://store.steampowered.com/api/appdetails?appids=${id}&filters=basic&cc=us`);
-			if (is_game === null) return {result: null, cacheable: false};
-			debug_log.add("lookup", `Package ${id}: ${is_game ? `no such package on Steam, using game ${id}` : "not found on Steam as a package or a game"}`);
-			return {result: is_game ? {type: "app", id} : given, cacheable: true};
+			const isPackage = await exists(`https://store.steampowered.com/api/packagedetails?packageids=${id}&cc=us`);
+			if (isPackage === null) return {result: null, cacheable: false};
+			if (isPackage) return {result: given, cacheable: true};
+			const isGame = await exists(`https://store.steampowered.com/api/appdetails?appids=${id}&filters=basic&cc=us`);
+			if (isGame === null) return {result: null, cacheable: false};
+			debugLog.add("lookup", `Package ${id}: ${isGame ? `no such package on Steam, using game ${id}` : "not found on Steam as a package or a game"}`);
+			return {result: isGame ? {type: "app", id} : given, cacheable: true};
 		});
 		return checked ?? given;
 	}
@@ -870,8 +870,8 @@ Copyright 2026, SentaiBrad
 	// Resident Evil 6 Complete lists only DLC IDs. Steam's details for a DLC name
 	// the full game it belongs to (DLC 232570 -> game 221040, Resident Evil 6),
 	// so the edition is that game. Resolves to {type: "app", id} or null.
-	function baseGameOfDlc(dlc_id) {
-		const id = Number(dlc_id);
+	function baseGameOfDlc(dlcId) {
+		const id = Number(dlcId);
 		return cachedLookup(`dlc-base:${id}`, `DLC ${id}`, async () => {
 			const response = await steamGet(`https://store.steampowered.com/api/appdetails?appids=${id}&filters=basic&cc=us`, "json");
 			if (!response) return {result: null, cacheable: false};
@@ -882,10 +882,10 @@ Copyright 2026, SentaiBrad
 			const details = json?.[id];
 			const game = Number(details?.data?.fullgame?.appid);
 			if (!details?.success || details.data.type !== "dlc" || !game) {
-				debug_log.add("lookup", `DLC ${id}: Steam names no full game`);
+				debugLog.add("lookup", `DLC ${id}: Steam names no full game`);
 				return {result: null, cacheable: true};
 			}
-			debug_log.add("lookup", `DLC ${id}: belongs to game ${game}`);
+			debugLog.add("lookup", `DLC ${id}: belongs to game ${game}`);
 			return {result: {type: "app", id: game}, cacheable: true};
 		});
 	}
@@ -921,7 +921,7 @@ Copyright 2026, SentaiBrad
 	// A pack with a member that wasn't found is saved for a day, like a miss,
 	// so it gets another chance soon.
 	function packSaveDays(pack) {
-		return countMissingMembers(pack) ? saved_miss_days : undefined;
+		return countMissingMembers(pack) ? savedMissDays : undefined;
 	}
 
 	//////////////////////////////////////////////////
@@ -945,14 +945,14 @@ Copyright 2026, SentaiBrad
 	}
 
 	// Create a new <a> link element to the appropriate Steam URL.
-	function steamUrl(app_or_sub, id) {
-		return `https://store.steampowered.com/${app_or_sub}/${id}`;
+	function steamUrl(appOrSub, id) {
+		return `https://store.steampowered.com/${appOrSub}/${id}`;
 	}
 
 	// Clicking opens the Steam page in a background tab, like a middle-click,
 	// so the store page keeps focus.
-	function createSteamLink(app_or_sub, id) {
-		const a = createSteamButton(steamUrl(app_or_sub, id));
+	function createSteamLink(appOrSub, id) {
+		const a = createSteamButton(steamUrl(appOrSub, id));
 		a.addEventListener("click", function(ev) {
 			ev.stopPropagation();
 			if (!getSetting("background_tabs")) return;   // follow the link normally
@@ -996,32 +996,32 @@ Copyright 2026, SentaiBrad
 	//////////////////////////////////////////////////
 	// Pack menu: the games inside a pack, each with its state and a link
 
-	let open_pack_menu = null;
+	let shownPackMenu = null;
 
 	function closePackMenu() {
-		open_pack_menu?.remove();
-		open_pack_menu = null;
+		shownPackMenu?.remove();
+		shownPackMenu = null;
 	}
 
 	// Clicks outside the menu, Esc and scrolling close it.
 	document.addEventListener("click", (ev) => {
-		if (open_pack_menu && !open_pack_menu.contains(ev.target)) closePackMenu();
+		if (shownPackMenu && !shownPackMenu.contains(ev.target)) closePackMenu();
 	}, true);
 	document.addEventListener("keydown", (ev) => {
 		if (ev.key === "Escape") closePackMenu();
 	});
 	window.addEventListener("scroll", closePackMenu, {passive: true});
 
-	const pack_member_states = {
+	const packMemberStates = {
 		bh_owned: {text: "OWNED", css: "owned"},
 		bh_wished: {text: "WISHLIST", css: "wished"},
 		bh_ignored: {text: "IGNORED", css: "ignored"},
 	};
 
 	function openPackMenu(button, members) {
-		const was_open_here = open_pack_menu?.bh_button === button;
+		const wasOpenHere = shownPackMenu?.bh_button === button;
 		closePackMenu();
-		if (was_open_here) return;
+		if (wasOpenHere) return;
 
 		const menu = document.createElement("bh-pack-menu");
 		menu.bh_button = button;
@@ -1033,7 +1033,7 @@ Copyright 2026, SentaiBrad
 			const found = member.type === "app" || member.type === "sub";
 			const row = document.createElement(found ? "a" : "bh-pack-row");
 			row.className = "bh_pack_row";
-			const state = found ? pack_member_states[classForMatch(member)] : null;
+			const state = found ? packMemberStates[classForMatch(member)] : null;
 			const dot = document.createElement("bh-pack-dot");
 			dot.className = state?.css ?? "none";
 			const name = document.createElement("bh-pack-name");
@@ -1057,7 +1057,7 @@ Copyright 2026, SentaiBrad
 		}
 
 		document.body.append(menu);
-		open_pack_menu = menu;
+		shownPackMenu = menu;
 
 		// Below the button, or above it when there's no room; inside the window.
 		const at = button.getBoundingClientRect();
@@ -1108,13 +1108,13 @@ Copyright 2026, SentaiBrad
 		return "";
 	}
 
-	const marking_classes = ["bh_owned", "bh_wished", "bh_ignored", "bh_partial", "bh_pack"];
+	const markingClasses = ["bh_owned", "bh_wished", "bh_ignored", "bh_partial", "bh_pack"];
 
 	// Marks an element from a lookup result (a Steam game, package or pack) and
 	// adds a Steam button through addLink(link), which places it for the site.
 	// A pack's button opens the list of games inside.
 	function markMatch(element, match, addLink) {
-		element.classList.remove(...marking_classes);
+		element.classList.remove(...markingClasses);
 		element.style.removeProperty("--bh-label");
 		let css;
 		if (match.type === "pack") {
@@ -1141,28 +1141,28 @@ Copyright 2026, SentaiBrad
 		itemSelector = "a[href*='store.steampowered.com/']",
 		itemStringExtractor = (a) => a.href,
 		closestSelector = "*",
-		addSteamLinkFunc = (item, closest, steam_link) => {},
+		addSteamLinkFunc = (item, closest, steamLink) => {},
 	}) {
-		let items_found = 0;
-		let items_with_data = 0;
-		let items_in_container = 0;
-		let items_already_done = 0;
-		let items_with_steam_id = 0;
+		let itemsFound = 0;
+		let itemsWithData = 0;
+		let itemsInContainer = 0;
+		let itemsAlreadyDone = 0;
+		let itemsWithSteamId = 0;
 		for (const root of document.querySelectorAll(rootSelector)) {
 			for (const item of root.querySelectorAll(itemSelector)) {
-				items_found++;
+				itemsFound++;
 				const data = itemStringExtractor(item);
 				if (!data) {
 					continue;
 				}
-				items_with_data++;
+				itemsWithData++;
 				const closest = item.closest(closestSelector);
 				if (!closest) {
 					continue;
 				}
-				items_in_container++;
+				itemsInContainer++;
 				if (closest.classList.contains("bh_already_processed")) {
-					items_already_done++;
+					itemsAlreadyDone++;
 					continue;
 				}
 				closest.classList.add("bh_already_processed");
@@ -1170,7 +1170,7 @@ Copyright 2026, SentaiBrad
 				const {app, sub} = parseStringForSteamId(data);
 				if (app || sub) {
 					recordItem(item.alt || item.title || item.textContent || data, "Steam ID on the page", app ? {type: "app", id: app} : {type: "sub", id: sub});
-					items_with_steam_id++;
+					itemsWithSteamId++;
 					closest.classList.remove("bh_owned", "bh_wished", "bh_ignored");
 					const cssClass = getClassForAppId(app) || getClassForSubId(sub);
 					if (cssClass) {
@@ -1178,15 +1178,15 @@ Copyright 2026, SentaiBrad
 						noteMarked();
 					}
 
-					const steam_link = createSteamLink(app ? "app" : "sub", app || sub);
-					addSteamLinkFunc?.(item, closest, steam_link)
+					const steamLink = createSteamLink(app ? "app" : "sub", app || sub);
+					addSteamLinkFunc?.(item, closest, steamLink)
 				}
 			}
 		}
 
-		noteRule(`${itemSelector} in ${rootSelector}`, items_found);
-		if (items_with_steam_id) {
-			debug_log.add("site", `${itemSelector} in ${rootSelector}: ${items_found} found, ${items_with_data} with data, ${items_in_container} in a container, ${items_already_done} already done, ${items_with_steam_id} newly marked`);
+		noteRule(`${itemSelector} in ${rootSelector}`, itemsFound);
+		if (itemsWithSteamId) {
+			debugLog.add("site", `${itemSelector} in ${rootSelector}: ${itemsFound} found, ${itemsWithData} with data, ${itemsInContainer} in a container, ${itemsAlreadyDone} already done, ${itemsWithSteamId} newly marked`);
 		}
 	}
 
@@ -1206,11 +1206,11 @@ Copyright 2026, SentaiBrad
 	// There are no visible ids in the DOM on Fanatical.
 	// Let's use something unique as the key: the cover image filenames.
 	// The values are {steam, name, slug} from Fanatical's own product data.
-	const fanatical_cover_map = new Map();
+	const fanaticalCoverMap = new Map();
 
 	function rememberFanaticalProduct(product) {
 		if (product.cover && product.steam) {
-			fanatical_cover_map.set(product.cover, {steam: product.steam, name: product.name, slug: product.slug});
+			fanaticalCoverMap.set(product.cover, {steam: product.steam, name: product.name, slug: product.slug});
 		}
 	}
 
@@ -1231,18 +1231,18 @@ Copyright 2026, SentaiBrad
 		return cachedLookup(`fanatical-contents:${slug}`, `Fanatical product ${slug}`, async () => {
 			let data;
 			try {
-				request_counts.fanatical++;
+				requestCounts.fanatical++;
 				const response = await fetch(`/api/products-group/${encodeURIComponent(slug)}/en`);
 				if (!response.ok) throw new Error(`HTTP ${response.status}`);
 				data = await response.json();
 			} catch (error) {
-				debug_log.add("lookup", `Fanatical product ${slug}: request failed (${error}), will retry next visit`);
+				debugLog.add("lookup", `Fanatical product ${slug}: request failed (${error}), will retry next visit`);
 				return {result: null, cacheable: false};
 			}
 			const products = (data?.bundles ?? []).flatMap((bundle) => bundle.games ?? []).map(fanaticalProduct);
 			const pack = await packFromContents(products, nested);
 			const missing = countMissingMembers(pack);
-			debug_log.add("lookup", `Fanatical product ${slug}: ${pack?.members.length ?? 0} Steam games inside${missing ? `, ${missing} not found` : ""}`);
+			debugLog.add("lookup", `Fanatical product ${slug}: ${pack?.members.length ?? 0} Steam games inside${missing ? `, ${missing} not found` : ""}`);
 			return {result: pack, cacheable: true, days: packSaveDays(pack)};
 		});
 	}
@@ -1250,7 +1250,7 @@ Copyright 2026, SentaiBrad
 	//////////////////////////////////////////////////
 	// Site handlers, by host. Each starts with a note on the pages it covers.
 
-	const site_mapping = {
+	const siteMapping = {
 		"astats.astats.nl": function() {
 			// Game lists and tables: Steam logo and teaser images in rows.
 			document.body.classList.add("bh_basic_style");
@@ -1393,7 +1393,7 @@ Copyright 2026, SentaiBrad
 					card.classList.add("bh_already_processed", "bh_eneba_card");
 					makeCard(card);
 					lookUpAndMark(name, "Eneba card title, looked up on Steam", (match) => {
-						markMatch(card, match, (steam_link) => card.appendChild(steam_link));
+						markMatch(card, match, (steamLink) => card.appendChild(steamLink));
 					});
 				}
 				// Product page heading
@@ -1437,10 +1437,10 @@ Copyright 2026, SentaiBrad
 				}
 			`);
 
-			function rememberFanaticalData(json_data) {
+			function rememberFanaticalData(jsonData) {
 				// Page: https://www.fanatical.com/en/bundle/batman-arkham-collection
 				// AJAX: https://www.fanatical.com/api/products-group/batman-arkham-collection/en
-				for (const bundle of json_data.bundles ?? []) {
+				for (const bundle of jsonData.bundles ?? []) {
 					for (const game of bundle.games ?? []) {
 						rememberFanaticalProduct(game);
 					}
@@ -1448,13 +1448,13 @@ Copyright 2026, SentaiBrad
 
 				// Page: https://www.fanatical.com/en/pick-and-mix/build-your-own-bento-bundle
 				// AJAX: https://www.fanatical.com/api/pick-and-mix/build-your-own-bento-bundle/en
-				for (const game of json_data.products ?? []) {
+				for (const game of jsonData.products ?? []) {
 					rememberFanaticalProduct(game);
 				}
 
 				// Page: https://www.fanatical.com/en/game/the-last-of-us-part-i
 				// AJAX: https://www.fanatical.com/api/products-group/the-last-of-us-part-i/en
-				rememberFanaticalProduct(json_data);
+				rememberFanaticalProduct(jsonData);
 			}
 
 			// Intercepting fetch() requests.
@@ -1463,22 +1463,22 @@ Copyright 2026, SentaiBrad
 			// * https://stackoverflow.com/a/29293383
 			// Using unsafeWindow to access the page's window object:
 			// * https://violentmonkey.github.io/api/metadata-block/#inject-into
-			const original_fetch = unsafeWindow.fetch;
-			debug_state.fetch_hook = "installed";
+			const originalFetch = unsafeWindow.fetch;
+			debugState.fetch_hook = "installed";
 			unsafeWindow.fetch = async function(...args) {
 				const [resource, options] = args;
-				const response = await original_fetch(resource, options);
+				const response = await originalFetch(resource, options);
 
 				// Replacing the .json() method.
-				const original_json = response.json;
-				if (original_json) {
+				const originalJson = response.json;
+				if (originalJson) {
 					response.json = function() {
-						const p = original_json.apply(this);
-						p.then((json_data) => {
-							if (!json_data) {
+						const p = originalJson.apply(this);
+						p.then((jsonData) => {
+							if (!jsonData) {
 								return;
 							}
-							rememberFanaticalData(json_data);
+							rememberFanaticalData(jsonData);
 							// Cards may already be on the page when their data arrives.
 							rescanSoon();
 						});
@@ -1493,12 +1493,12 @@ Copyright 2026, SentaiBrad
 			// on a slow computer. Then, once the page has loaded and none of its
 			// product covers has data, the script asks for that page's data itself,
 			// once per page.
-			const product_card_selector = ".bundle-game-card, .bundle-product-card, .NewPickAndMixCard, .PickAndMixCard, .ProductHeader.container";
-			const fallback_requested = new Set();
-			let hook_had_its_chance = false;
+			const productCardSelector = ".bundle-game-card, .bundle-product-card, .NewPickAndMixCard, .PickAndMixCard, .ProductHeader.container";
+			const fallbackRequested = new Set();
+			let hookHadItsChance = false;
 			function startFallbackTimer() {
 				setTimeout(() => {
-					hook_had_its_chance = true;
+					hookHadItsChance = true;
 					rescanSoon();
 				}, 2000);
 			}
@@ -1516,26 +1516,26 @@ Copyright 2026, SentaiBrad
 			}
 
 			async function requestMissedPageData() {
-				if (!hook_had_its_chance) return;
+				if (!hookHadItsChance) return;
 				const url = pageDataUrl();
-				if (!url || fallback_requested.has(url)) return;
-				const covers = [...document.querySelectorAll("main img.img-full[srcset]")].filter((img) => img.closest(product_card_selector));
-				if (!covers.length || covers.some((img) => fanatical_cover_map.has(filenameFromURL(img.src)))) return;
+				if (!url || fallbackRequested.has(url)) return;
+				const covers = [...document.querySelectorAll("main img.img-full[srcset]")].filter((img) => img.closest(productCardSelector));
+				if (!covers.length || covers.some((img) => fanaticalCoverMap.has(filenameFromURL(img.src)))) return;
 
-				fallback_requested.add(url);
-				const before = fanatical_cover_map.size;
+				fallbackRequested.add(url);
+				const before = fanaticalCoverMap.size;
 				try {
-					request_counts.fanatical++;
+					requestCounts.fanatical++;
 					const response = await fetch(url);
 					if (!response.ok) throw new Error(`HTTP ${response.status}`);
 					rememberFanaticalData(await response.json());
 				} catch (error) {
-					debug_state.fanatical_data_fallback = `${url} failed (${error})`;
-					debug_log.add("site", `the hook missed this page's data; requesting ${url} failed (${error})`);
+					debugState.fanatical_data_fallback = `${url} failed (${error})`;
+					debugLog.add("site", `the hook missed this page's data; requesting ${url} failed (${error})`);
 					return;
 				}
-				debug_state.fanatical_data_fallback = `${url}: ${fanatical_cover_map.size - before} covers with Steam data`;
-				debug_log.add("site", `the hook missed this page's data; requested ${url}: ${fanatical_cover_map.size - before} covers with Steam data`);
+				debugState.fanatical_data_fallback = `${url}: ${fanaticalCoverMap.size - before} covers with Steam data`;
+				debugLog.add("site", `the hook missed this page's data; requested ${url}: ${fanaticalCoverMap.size - before} covers with Steam data`);
 				rescanSoon();
 			}
 
@@ -1548,7 +1548,7 @@ Copyright 2026, SentaiBrad
 				(cover ?? card).insertAdjacentElement("beforeend", link);
 			}
 
-			const card_selector = ".bundle-game-card, .bundle-product-card, .card, .HitCard, .header-content-container, .NewPickAndMixCard, .PickAndMixCard, .ProductHeader.container";
+			const cardSelector = ".bundle-game-card, .bundle-product-card, .card, .HitCard, .header-content-container, .NewPickAndMixCard, .PickAndMixCard, .ProductHeader.container";
 
 			// The Steam ID can be used as given: there is one, and it isn't a
 			// package ID that needs checking on Steam.
@@ -1560,9 +1560,9 @@ Copyright 2026, SentaiBrad
 			// ID of their own, and package IDs that need checking on Steam.
 			function markProductsNeedingLookup() {
 				for (const img of document.querySelectorAll("main img.img-full[srcset]")) {
-					const product = fanatical_cover_map.get(filenameFromURL(img.src));
+					const product = fanaticalCoverMap.get(filenameFromURL(img.src));
 					if (!product || usableSteamId(product)) continue;
-					const card = img.closest(card_selector);
+					const card = img.closest(cardSelector);
 					if (!card || card.classList.contains("bh_already_processed")) continue;
 					// Whole bundles (cards linking to a bundle page) aren't products.
 					if (card.querySelector("a.HitCard__main__cover[href*='/bundle/'], a.HitCard__main__cover[href*='/pick-and-mix/']")) continue;
@@ -1584,13 +1584,13 @@ Copyright 2026, SentaiBrad
 					rootSelector: "main",
 					itemSelector: "img.img-full[srcset]",
 					itemStringExtractor: (img) => {
-						const product = fanatical_cover_map.get(filenameFromURL(img.src));
+						const product = fanaticalCoverMap.get(filenameFromURL(img.src));
 						if (!usableSteamId(product)) {
 							return "";
 						}
 						return `/${product.steam.type}/${product.steam.id}`;
 					},
-					closestSelector: card_selector,
+					closestSelector: cardSelector,
 					addSteamLinkFunc: (item, closest, link) => {
 						makeCard(closest);
 						placeSteamLink(closest, link);
@@ -1652,14 +1652,14 @@ Copyright 2026, SentaiBrad
 				noteRule("Humble tiles (.tier-item-view)", document.querySelectorAll(".tier-item-view").length);
 				for (const tile of document.querySelectorAll(".tier-item-view:not(.bh_already_processed)")) {
 					tile.classList.add("bh_already_processed");
-					const title_elem = tile.querySelector(".item-title");
-					if (!title_elem) continue;
-					const title = ownText(title_elem);
-					if (!title) debug_log.add("error", `Humble tile title came out empty; tile text is ${JSON.stringify(title_elem.textContent.trim().slice(0, 80))}`);
+					const titleElem = tile.querySelector(".item-title");
+					if (!titleElem) continue;
+					const title = ownText(titleElem);
+					if (!title) debugLog.add("error", `Humble tile title came out empty; tile text is ${JSON.stringify(titleElem.textContent.trim().slice(0, 80))}`);
 					lookUpAndMark(title, "Humble title, looked up on Steam", (match) => {
-						const img_container = tile.querySelector(".img-container");
-						if (img_container) makeCard(img_container);
-						markMatch(tile, match, (link) => img_container?.appendChild(link));
+						const imgContainer = tile.querySelector(".img-container");
+						if (imgContainer) makeCard(imgContainer);
+						markMatch(tile, match, (link) => imgContainer?.appendChild(link));
 					});
 				}
 			}
@@ -1754,10 +1754,10 @@ Copyright 2026, SentaiBrad
 				const tiles = document.querySelectorAll(".index_game_cell_widget.game_cell:not(.bh_already_processed)");
 				for (const tile of tiles) {
 					tile.classList.add("bh_already_processed");
-					const title_elem = tile.querySelector(".game_title, .title");
-					if (!title_elem) continue;
-					const title = ownText(title_elem);
-					if (!title) debug_log.add("error", `itch.io tile title came out empty; tile text is ${JSON.stringify(title_elem.textContent.trim().slice(0, 80))}`);
+					const titleElem = tile.querySelector(".game_title, .title");
+					if (!titleElem) continue;
+					const title = ownText(titleElem);
+					if (!title) debugLog.add("error", `itch.io tile title came out empty; tile text is ${JSON.stringify(titleElem.textContent.trim().slice(0, 80))}`);
 					lookUpAndMark(title, "itch.io title, looked up on Steam", (match) => {
 						markMatch(tile, match, (link) => {
 							const thumb = tile.querySelector("a.game_thumb");
@@ -1924,11 +1924,11 @@ Copyright 2026, SentaiBrad
 	// site's styles can't reach it, and it takes after Steam's colors without
 	// imitating Steam.
 
-	const panel_minimized_key = "bh_panel_minimized";
-	const issues_url = "https://github.com/SentaiBrad/Bundle-Helper-Reborn-3.0/issues/new";
-	let the_panel = null;
+	const panelMinimizedKey = "bh_panel_minimized";
+	const issuesUrl = "https://github.com/SentaiBrad/Bundle-Helper-Reborn-3.0/issues/new";
+	let thePanel = null;
 
-	const panel_icons = {
+	const panelIcons = {
 		gear: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.4 13a7.6 7.6 0 0 0 0-2l2.1-1.6-2-3.4-2.5 1a7.4 7.4 0 0 0-1.7-1L15 3.3h-4l-.4 2.7a7.4 7.4 0 0 0-1.7 1l-2.5-1-2 3.4L6.6 11a7.6 7.6 0 0 0 0 2l-2.1 1.6 2 3.4 2.5-1a7.4 7.4 0 0 0 1.7 1l.4 2.7h4l.4-2.7a7.4 7.4 0 0 0 1.7-1l2.5 1 2-3.4zM12 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7z"/></svg>`,
 		bug: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3.5 7.6 2.1l1-1L10.3 2.8a5 5 0 0 1 3.4 0L15.4 1.1l1 1L15 3.5A5 5 0 0 1 17 7H7a5 5 0 0 1 2-3.5Z"/><path d="M6 8h12v6a6 6 0 0 1-5.25 5.95V11h-1.5v8.95A6 6 0 0 1 6 14V8Z"/><path d="M1 9h4v1.5H1zM19 9h4v1.5h-4zM1 13.25h4v1.5H1zM19 13.25h4v1.5h-4zM2.5 19.5 5.6 16.4l1.1 1.06-3.1 3.1zM21.5 19.5l-3.1-3.1-1.1 1.06 3.1 3.1z"/></svg>`,
 		minimize: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 11h14v2H5z"/></svg>`,
@@ -1937,7 +1937,7 @@ Copyright 2026, SentaiBrad
 
 	// Steam's store colors (read from store.steampowered.com, 2026-10-30) and a
 	// system font. Sizes are in em, so the panel size setting scales everything.
-	const panel_css = `
+	const panelCss = `
 		:host { all: initial; }
 		.panel, .bar {
 			box-sizing: border-box;
@@ -1998,21 +1998,21 @@ Copyright 2026, SentaiBrad
 		.copied { color: #22e07a; }
 	`;
 
-	const panel_html = `
+	const panelHtml = `
 		<div class="bar" id="bar" role="button" tabindex="0" title="Open Bundle Helper" hidden>
 			<b>Bundle Helper</b>
 			<span class="owned" id="bar-owned"></span>
 			<span class="wished" id="bar-wished"></span>
 			<span class="ignored" id="bar-ignored"></span>
 			<span class="note" id="bar-age"></span>
-			<span class="icon">${panel_icons.expand}</span>
+			<span class="icon">${panelIcons.expand}</span>
 		</div>
 		<div class="panel" id="panel">
 			<div class="head">
 				<b id="title">Bundle Helper</b>
-				<button class="icon" id="open-settings" title="Settings">${panel_icons.gear}</button>
-				<button class="icon" id="open-debug" title="Debug report">${panel_icons.bug}</button>
-				<button class="icon" id="minimize" title="Minimize">${panel_icons.minimize}</button>
+				<button class="icon" id="open-settings" title="Settings">${panelIcons.gear}</button>
+				<button class="icon" id="open-debug" title="Debug report">${panelIcons.bug}</button>
+				<button class="icon" id="minimize" title="Minimize">${panelIcons.minimize}</button>
 			</div>
 			<div class="body" id="view-main">
 				<div class="row"><span>Steam data</span><span><span id="age"></span> · <span class="link" id="refresh" role="button" tabindex="0">refresh</span></span></div>
@@ -2040,10 +2040,10 @@ Copyright 2026, SentaiBrad
 	function createPanel() {
 		const host = document.createElement("bundle-helper");
 		const shadow = host.attachShadow({mode: "open"});
-		shadow.innerHTML = `<style>${panel_css}</style>${panel_html}`;
+		shadow.innerHTML = `<style>${panelCss}</style>${panelHtml}`;
 		const $ = (selector) => shadow.querySelector(selector);
 		let view = "main";
-		let debug_tab = "overview";
+		let debugTab = "overview";
 
 		function showView(name) {
 			view = view === name ? "main" : name;
@@ -2057,7 +2057,7 @@ Copyright 2026, SentaiBrad
 		}
 
 		function setMinimized(minimized) {
-			GM_setValue(panel_minimized_key, minimized);
+			GM_setValue(panelMinimizedKey, minimized);
 			$("#bar").hidden = !minimized;
 			$("#panel").hidden = minimized;
 			if (!minimized) panel.update();
@@ -2066,11 +2066,11 @@ Copyright 2026, SentaiBrad
 		// Every panel action is logged, and an error in one can't break the panel.
 		const onClick = (selector, action) => $(selector).addEventListener("click", (ev) => {
 			ev.preventDefault();
-			debug_log.add("panel", `clicked ${selector}`);
+			debugLog.add("panel", `clicked ${selector}`);
 			try {
 				action(ev);
 			} catch (error) {
-				debug_log.add("error", `panel action ${selector} failed: ${error?.stack ?? error}`);
+				debugLog.add("error", `panel action ${selector} failed: ${error?.stack ?? error}`);
 			}
 		});
 		onClick("#open-settings", () => showView("settings"));
@@ -2081,12 +2081,12 @@ Copyright 2026, SentaiBrad
 		onClick("#refresh", () => refreshSteamData().catch(() => {}).finally(() => panel.update()));
 		onClick("#retry", () => {
 			const removed = clearSavedMisses();
-			debug_log.add("lookup", `cleared ${removed} saved misses, reloading page`);
+			debugLog.add("lookup", `cleared ${removed} saved misses, reloading page`);
 			location.reload();
 		});
 		for (const tab of shadow.querySelectorAll("[data-tab]")) {
 			tab.addEventListener("click", () => {
-				debug_tab = tab.dataset.tab;
+				debugTab = tab.dataset.tab;
 				for (const other of shadow.querySelectorAll("[data-tab]")) other.setAttribute("aria-pressed", String(other === tab));
 				panel.update();
 			});
@@ -2106,7 +2106,7 @@ Copyright 2026, SentaiBrad
 				try {
 					this.render();
 				} catch (error) {
-					debug_log.add("error", `panel update failed: ${error?.stack ?? error}`);
+					debugLog.add("error", `panel update failed: ${error?.stack ?? error}`);
 				}
 			},
 			render() {
@@ -2118,12 +2118,12 @@ Copyright 2026, SentaiBrad
 				if ($("#panel").hidden) return;
 				if (view === "main") updateMainView($, sets);
 				if (view === "settings") updateSettingsView($("#view-settings"));
-				if (view === "debug") updateDebugView($("#debug-body"), debug_tab);
-				$("#report").href = `${issues_url}?title=${encodeURIComponent(`Problem on ${location.hostname} (version ${GM_info?.script?.version ?? "unknown"})`)}`;
+				if (view === "debug") updateDebugView($("#debug-body"), debugTab);
+				$("#report").href = `${issuesUrl}?title=${encodeURIComponent(`Problem on ${location.hostname} (version ${GM_info?.script?.version ?? "unknown"})`)}`;
 			},
 		};
 		panel.applyLayout();
-		setMinimized(GM_getValue(panel_minimized_key, false) === true);
+		setMinimized(GM_getValue(panelMinimizedKey, false) === true);
 		return panel;
 	}
 
@@ -2151,11 +2151,11 @@ Copyright 2026, SentaiBrad
 		}
 	}
 
-	// Builds the settings view from setting_definitions, grouped by `group`,
+	// Builds the settings view from settingDefinitions, grouped by `group`,
 	// plus the API key field and the data buttons.
 	function buildSettingsView(container) {
 		let group = "";
-		for (const definition of setting_definitions) {
+		for (const definition of settingDefinitions) {
 			if (definition.group !== group) {
 				group = definition.group;
 				const heading = document.createElement("div");
@@ -2193,69 +2193,69 @@ Copyright 2026, SentaiBrad
 		}
 
 		// The key itself is never shown again after saving, only its last 4 characters.
-		const key_input = document.createElement("input");
-		key_input.type = "password";
-		key_input.autocomplete = "off";
-		key_input.spellcheck = false;
-		key_input.placeholder = "32-character key";
-		const key_status = document.createElement("div");
-		key_status.className = "note";
-		key_status.id = "api-key-status";
-		const key_actions = document.createElement("div");
-		key_actions.className = "actions";
+		const keyInput = document.createElement("input");
+		keyInput.type = "password";
+		keyInput.autocomplete = "off";
+		keyInput.spellcheck = false;
+		keyInput.placeholder = "32-character key";
+		const keyStatus = document.createElement("div");
+		keyStatus.className = "note";
+		keyStatus.id = "api-key-status";
+		const keyActions = document.createElement("div");
+		keyActions.className = "actions";
 		const addButton = (parent, text, title, action) => {
 			const button = document.createElement("button");
 			button.className = "button";
 			button.textContent = text;
 			button.title = title;
 			button.addEventListener("click", () => {
-				debug_log.add("panel", `clicked ${text}`);
+				debugLog.add("panel", `clicked ${text}`);
 				try {
 					action();
 				} catch (error) {
-					debug_log.add("error", `panel action ${text} failed: ${error?.stack ?? error}`);
+					debugLog.add("error", `panel action ${text} failed: ${error?.stack ?? error}`);
 				}
 			});
 			parent.append(button);
 		};
-		addButton(key_actions, "Save key", "Save the key in your userscript manager", () => {
-			const key = key_input.value.trim();
-			if (!steam_api.isValidFormat(key)) {
-				key_status.textContent = "Not saved: a key is 32 letters and digits (0-9, A-F).";
+		addButton(keyActions, "Save key", "Save the key in your userscript manager", () => {
+			const key = keyInput.value.trim();
+			if (!steamApi.isValidFormat(key)) {
+				keyStatus.textContent = "Not saved: a key is 32 letters and digits (0-9, A-F).";
 				return;
 			}
-			steam_api.setKey(key);
-			key_input.value = "";
-			debug_log.add("settings", "Steam Web API key saved");
-			the_panel?.update();
+			steamApi.setKey(key);
+			keyInput.value = "";
+			debugLog.add("settings", "Steam Web API key saved");
+			thePanel?.update();
 		});
-		addButton(key_actions, "Clear key", "Remove the saved key", () => {
-			steam_api.clearKey();
-			debug_log.add("settings", "Steam Web API key cleared");
-			the_panel?.update();
+		addButton(keyActions, "Clear key", "Remove the saved key", () => {
+			steamApi.clearKey();
+			debugLog.add("settings", "Steam Web API key cleared");
+			thePanel?.update();
 		});
-		container.append(key_input, key_status, key_actions);
+		container.append(keyInput, keyStatus, keyActions);
 
-		const data_heading = document.createElement("div");
-		data_heading.className = "group";
-		data_heading.textContent = "Saved data";
-		const data_actions = document.createElement("div");
-		data_actions.className = "actions";
-		addButton(data_actions, "Refresh Steam data", "Fetch your owned, wishlisted and ignored lists again", () => {
-			refreshSteamData().catch(() => {}).finally(() => the_panel?.update());
+		const dataHeading = document.createElement("div");
+		dataHeading.className = "group";
+		dataHeading.textContent = "Saved data";
+		const dataActions = document.createElement("div");
+		dataActions.className = "actions";
+		addButton(dataActions, "Refresh Steam data", "Fetch your owned, wishlisted and ignored lists again", () => {
+			refreshSteamData().catch(() => {}).finally(() => thePanel?.update());
 		});
-		addButton(data_actions, "Retry misses", "Forget titles that weren't found and look them up again", () => {
+		addButton(dataActions, "Retry misses", "Forget titles that weren't found and look them up again", () => {
 			clearSavedMisses();
 			location.reload();
 		});
-		addButton(data_actions, "Clear saved lookups", "Forget every saved title, product and bundle lookup", () => {
+		addButton(dataActions, "Clear saved lookups", "Forget every saved title, product and bundle lookup", () => {
 			clearSavedLookups();
 			location.reload();
 		});
 		const note = document.createElement("div");
 		note.className = "note";
 		note.textContent = "Nothing uses the API key yet. Switching it clears saved lookups and fetches your Steam data again.";
-		container.append(note, data_heading, data_actions);
+		container.append(note, dataHeading, dataActions);
 	}
 
 	function updateSettingsView(container) {
@@ -2264,7 +2264,7 @@ Copyright 2026, SentaiBrad
 			if (control.classList.contains("switch")) control.setAttribute("aria-checked", String(value));
 			else control.setAttribute("aria-pressed", String(control.dataset.value === value));
 		}
-		const key = steam_api.getKey();
+		const key = steamApi.getKey();
 		container.querySelector("#api-key-status").textContent = key ? `Key saved (ends in ${key.slice(-4)}).` : "No key saved.";
 	}
 
@@ -2276,13 +2276,13 @@ Copyright 2026, SentaiBrad
 			container.append(pre);
 			return;
 		}
-		if (!page_items.length) {
+		if (!pageItems.length) {
 			const pre = document.createElement("pre");
 			pre.textContent = "No items seen on this page yet.";
 			container.append(pre);
 			return;
 		}
-		for (const item of page_items) {
+		for (const item of pageItems) {
 			const state = itemState(item.match);
 			const row = document.createElement("div");
 			row.className = "item";
@@ -2323,7 +2323,7 @@ Copyright 2026, SentaiBrad
 	}
 
 	// Updates the panel at most once a second while things are being marked.
-	const schedulePanelUpdate = throttle(() => the_panel?.update(), 1000);
+	const schedulePanelUpdate = throttle(() => thePanel?.update(), 1000);
 
 	// Plain-text report: [Section] headers and "Setting = value" lines.
 	// tab: "overview", "items", "log" or "all" (everything, used by Copy all).
@@ -2352,25 +2352,25 @@ Copyright 2026, SentaiBrad
 			value("Update URL", info?.script?.updateURL || info?.script?.downloadURL || info?.scriptUpdateURL || "unknown");
 			value("Injection mode", info?.sandboxMode ?? info?.injectInto ?? "unknown");
 			value("Browser", navigator.userAgent);
-			value("Script started", `${debug_state.started_ms} ms after the page started loading`);
-			value("First item marked", debug_state.first_mark_ms === null ? "not yet" : `${debug_state.first_mark_ms} ms after the page started loading`);
+			value("Script started", `${debugState.started_ms} ms after the page started loading`);
+			value("First item marked", debugState.first_mark_ms === null ? "not yet" : `${debugState.first_mark_ms} ms after the page started loading`);
 
 			section("Page");
 			value("Page", location.origin + location.pathname);
-			value("Page at script start", location.href === debug_state.url_at_start ? "same" : `${debug_state.url_at_start.split(/[?#]/)[0]} (the site changed pages without reloading)`);
-			value("Site handler", debug_state.site_handler || "none (this host has no handler)");
-			value("Window", `${window.innerWidth} x ${window.innerHeight}, ${document.visibilityState} (${debug_state.visibility_at_start} when the script started)`);
+			value("Page at script start", location.href === debugState.url_at_start ? "same" : `${debugState.url_at_start.split(/[?#]/)[0]} (the site changed pages without reloading)`);
+			value("Site handler", debugState.site_handler || "none (this host has no handler)");
+			value("Window", `${window.innerWidth} x ${window.innerHeight}, ${document.visibilityState} (${debugState.visibility_at_start} when the script started)`);
 			value("Page language", document.documentElement.lang || "not set");
 
 			section("Settings");
-			for (const definition of setting_definitions) value(definition.label, getSetting(definition.id));
+			for (const definition of settingDefinitions) value(definition.label, getSetting(definition.id));
 			value("Panel scale", panelScale());
 
 			section("Steam data");
 			const sets = getSteamSets();
-			const fetched = GM_getValue(steam_data_time_key, 0);
+			const fetched = GM_getValue(steamDataTimeKey, 0);
 			value("Last fetched", fetched ? `${new Date(fetched * 1000).toISOString()} (${steamDataAge()} ago)` : "never");
-			value("Fetch on this page", debug_state.steam_fetch);
+			value("Fetch on this page", debugState.steam_fetch);
 			value("Owned apps", sets.ownedApps.size);
 			value("Owned packages", sets.ownedPackages.size);
 			value("Wishlisted apps", sets.wishlist.size);
@@ -2389,17 +2389,17 @@ Copyright 2026, SentaiBrad
 				const entries = saved.filter(([key]) => kind(key) === name);
 				value(name, `${entries.filter(([, e]) => e.match).length} found, ${entries.filter(([, e]) => !e.match).length} not found`);
 			}
-			value("Saved format version", saved_lookups_version);
+			value("Saved format version", savedLookupsVersion);
 
 			section("Requests on this page");
-			value("Steam search", request_counts.steam_search);
-			value("Steam app details", request_counts.steam_app_details);
-			value("Steam package details", request_counts.steam_package_details);
-			value("Fanatical data", request_counts.fanatical);
-			value("Answered from saved lookups", request_counts.saved);
+			value("Steam search", requestCounts.steam_search);
+			value("Steam app details", requestCounts.steam_app_details);
+			value("Steam package details", requestCounts.steam_package_details);
+			value("Fanatical data", requestCounts.fanatical);
+			value("Answered from saved lookups", requestCounts.saved);
 
 			section("This page");
-			value("Items seen", page_items.length);
+			value("Items seen", pageItems.length);
 			value("Marked owned", count(".bh_owned"));
 			value("Marked wishlisted", count(".bh_wished"));
 			value("Marked ignored", count(".bh_ignored"));
@@ -2407,49 +2407,49 @@ Copyright 2026, SentaiBrad
 			value("Marked packs", count(".bh_pack"));
 			value("Steam buttons", count(".bh_steamlink"));
 			value("Processed elements", count(".bh_already_processed"));
-			value("Page watchers", active_mutation_observers.length);
-			value("Page scans", `${scan_stats.count}, slowest ${scan_stats.slowest_ms} ms, average ${scan_stats.count ? Math.round(scan_stats.total_ms / scan_stats.count) : 0} ms`);
+			value("Page watchers", activeMutationObservers.length);
+			value("Page scans", `${scanStats.count}, slowest ${scanStats.slowest_ms} ms, average ${scanStats.count ? Math.round(scanStats.total_ms / scanStats.count) : 0} ms`);
 			const duplicates = [...document.querySelectorAll(".bh_already_processed")].filter((el) => el.querySelectorAll(".bh_steamlink").length > 1).length;
 			value("Items with more than one Steam button", duplicates);
-			for (const [rule, found] of rule_counts) value(`Found by ${rule}`, found);
-			if (debug_state.site_handler === "fanatical.com") {
-				value("Fanatical fetch hook", debug_state.fetch_hook);
-				value("Fanatical covers with Steam data", `${fanatical_cover_map.size}${fanatical_cover_map.size ? "" : " (0 after the page loaded means the hook isn't seeing Fanatical's data)"}`);
-				value("Fanatical data fallback", debug_state.fanatical_data_fallback);
+			for (const [rule, found] of ruleCounts) value(`Found by ${rule}`, found);
+			if (debugState.site_handler === "fanatical.com") {
+				value("Fanatical fetch hook", debugState.fetch_hook);
+				value("Fanatical covers with Steam data", `${fanaticalCoverMap.size}${fanaticalCoverMap.size ? "" : " (0 after the page loaded means the hook isn't seeing Fanatical's data)"}`);
+				value("Fanatical data fallback", debugState.fanatical_data_fallback);
 			}
-			value("Errors this page", debug_log.count("error"));
+			value("Errors this page", debugLog.count("error"));
 
 			section("Steam API");
-			const key = steam_api.getKey();
+			const key = steamApi.getKey();
 			value("Key", key ? `set (ends in ${key.slice(-4)})` : "not set");
-			value("Key format", key ? (steam_api.isValidFormat(key) ? "valid (32 hex characters)" : "INVALID") : "n/a");
+			value("Key format", key ? (steamApi.isValidFormat(key) ? "valid (32 hex characters)" : "INVALID") : "n/a");
 			value("Used by", "nothing yet");
-			value("Requests this page", steam_api.stats.requests);
-			value("Failed requests", steam_api.stats.failures);
-			value("Last error", steam_api.stats.last_error || "none");
+			value("Requests this page", steamApi.stats.requests);
+			value("Failed requests", steamApi.stats.failures);
+			value("Last error", steamApi.stats.last_error || "none");
 		}
 
 		if (want("items")) {
 			section("Items (name = result, source)");
-			for (const item of page_items) value(item.name, `${itemState(item.match).text}, from ${item.source}`);
-			if (!page_items.length) lines.push("(none yet)");
+			for (const item of pageItems) value(item.name, `${itemState(item.match).text}, from ${item.source}`);
+			if (!pageItems.length) lines.push("(none yet)");
 		}
 
 		if (want("log")) {
 			section("Log (newest last)");
-			for (const entry of debug_log.entries) {
+			for (const entry of debugLog.entries) {
 				lines.push(`${entry.time.toLocaleTimeString()} ${entry.category}: ${entry.message}`);
 			}
-			if (!debug_log.entries.length) lines.push("(empty)");
+			if (!debugLog.entries.length) lines.push("(empty)");
 		}
 		return lines.join("\n");
 	}
 
 	function addBundleHelperUI() {
-		the_panel = createPanel();
-		document.body.appendChild(the_panel.host);
-		refreshSteamDataIfOld().catch(() => {}).finally(() => the_panel.update());
-		return the_panel;
+		thePanel = createPanel();
+		document.body.appendChild(thePanel.host);
+		refreshSteamDataIfOld().catch(() => {}).finally(() => thePanel.update());
+		return thePanel;
 	}
 
 	//////////////////////////////////////////////////
@@ -2460,14 +2460,14 @@ Copyright 2026, SentaiBrad
 		// Removing the www. prefix, if present.
 		hostname = hostname.replace(/^www\./, "");
 		// Calling the site-specific code, if found.
-		const handler = site_mapping[hostname];
-		debug_state.site_handler = handler ? hostname : "";
+		const handler = siteMapping[hostname];
+		debugState.site_handler = handler ? hostname : "";
 		if (!handler) return;
-		debug_log.add("site", `running the ${hostname} handler`);
+		debugLog.add("site", `running the ${hostname} handler`);
 		try {
 			handler();
 		} catch (error) {
-			debug_log.add("error", `${hostname} handler failed: ${error?.stack ?? error}`);
+			debugLog.add("error", `${hostname} handler failed: ${error?.stack ?? error}`);
 		}
 	}
 

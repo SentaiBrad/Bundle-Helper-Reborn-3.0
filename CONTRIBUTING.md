@@ -29,7 +29,7 @@ The file reads top to bottom in this order, so the part for one site, or one sha
 8. The corner panel and the debug report
 9. Start-up
 
-Site handlers (in `site_mapping`) only describe their site: which element is a game, where its Steam ID or title comes from, and where the Steam button goes. Everything else is shared, so every site looks and behaves the same:
+Site handlers (in `siteMapping`) only describe their site: which element is a game, where its Steam ID or title comes from, and where the Steam button goes. Everything else is shared, so every site looks and behaves the same:
 
 - **`makeCard(element)`** turns a card-style item into a marked card: the frame and label band are the script's own elements (`bh-frame`, `bh-label`), so the site's styles can't distort them.
 - **`markMatch(element, match, addLink)`** marks an element from a lookup result: a Steam app, a Steam package, or a pack of several games. `addLink(link)` places the Steam button for the site.
@@ -68,7 +68,8 @@ A site-specific fix may break a style rule when the site forces it. Add one comm
 
 **Consistent**
 - Tabs for indentation, double quotes, semicolons, `const` or `let` (never `var`), `===`.
-- Log through `debug_log.add()`, never bare `console.log`.
+- `camelCase` for functions, variables and parameters. Anything that's saved or comes from outside keeps its own spelling: CSS classes (`bh_owned`), storage keys (`bh_title_cache`, `bh_settings`), the setting IDs saved inside them (`panel_size`), and Steam's and the stores' JSON fields. Renaming those would lose people's saved data or break the lookups.
+- Log through `debugLog.add()`, never bare `console.log`.
 
 **Safe**
 - Text from a site goes into the page only as text (`textContent`), never as HTML. `innerHTML` is only for the script's own fixed markup and icons.
@@ -81,14 +82,14 @@ A site-specific fix may break a style rule when the site forces it. Add one comm
 
 ## Guidelines
 
-- **Settings are one list.** Add a setting to `setting_definitions`; the settings view, the checks on saved values, and the debug report all read from it.
-- **Steam Web API key:** optional and unused today. If a feature uses it, it must also work without a key, send it only to `api.steampowered.com` (add that `@connect`), and never log it. Read it with `steam_api.getKey()`.
-- **Log through `debug_log.add(category, message)`**, not bare `console.log`, so it shows up in the bug button's report.
+- **Settings are one list.** Add a setting to `settingDefinitions`; the settings view, the checks on saved values, and the debug report all read from it.
+- **Steam Web API key:** optional and unused today. If a feature uses it, it must also work without a key, send it only to `api.steampowered.com` (add that `@connect`), and never log it. Read it with `steamApi.getKey()`.
+- **Log through `debugLog.add(category, message)`**, not bare `console.log`, so it shows up in the bug button's report.
 - **Work in both Tampermonkey and Violentmonkey.** Only use the metadata keys and `GM_*` functions listed in [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md), and test in both when you can.
 - **Prefer real Steam IDs over titles.** Use a Steam link, Steam image URL, data attribute or site API data whenever the page has one. Fall back to title matching only when it doesn't.
 - **Don't guess.** A game that's left unmarked is better than one marked wrong. Keep title matching exact after normalization.
 - **No per-title special cases.** Hardcoded mappings for individual games don't belong in the shared script.
-- **Keep each site's code in its own handler** in `site_mapping`, and scope selectors to that site's game cards so the page isn't recolored broadly.
+- **Keep each site's code in its own handler** in `siteMapping`, and scope selectors to that site's game cards so the page isn't recolored broadly.
 - **Respect the sites.** Don't add code that floods Steam's store search or a store's own servers with requests. Save results, and limit how many requests run at once.
 - **One concern per version.** Keep cleanups and behavior changes in separate versions, so a problem points at one change.
 - **Test on the live site,** including hover and signed-in states, not only on a saved page.

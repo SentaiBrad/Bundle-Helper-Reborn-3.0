@@ -1,5 +1,10 @@
 # Changelog
 
+## 3.0.40
+
+- Internal: the script's own functions and variables use `camelCase` (for example `debugLog`, `siteMapping`). Storage keys, setting IDs and CSS class names keep their names, so saved data and settings carry over. No change in behavior.
+- CONTRIBUTING: the naming rule is in the code style.
+
 ## 3.0.39
 
 - Internal: sites that only have a game's name (Humble Bundle, itch.io, Eneba) share one helper to look it up, list it in the debug view and mark it. Marking doesn't change; a failed lookup's log line now names where the name came from.
