@@ -2,7 +2,7 @@
 // @name            Bundle Helper Reborn 3.0
 // @namespace       https://github.com/SentaiBrad/
 // @author          SentaiBrad
-// @version         3.0.37
+// @version         3.0.38
 // @description     Marks the Steam games you own, have wishlisted or ignored on bundle and game store sites (Humble Bundle, Fanatical, Eneba and more), including packs and bundles, with a Steam button on each game.
 // @match           *://dailyindiegame.com/*
 // @match           *://old.reddit.com/*
@@ -802,6 +802,7 @@ Copyright 2026, SentaiBrad
 	//   contents: null, or a function (nested) that resolves to the pack made of
 	//             the products inside it (see packFromContents), or null when it
 	//             lists none
+	//   dlc:      Steam app IDs of the game's DLC, from the store's own data, or []
 
 	// A store can label a game's ID as a package ID: Fanatical sells Resident
 	// Evil 5 Gold Edition as package 21690, but 21690 is the game and Steam has
@@ -838,7 +839,8 @@ Copyright 2026, SentaiBrad
 	}
 
 	// A product's own Steam ID (checked when needed), or else the pack its
-	// contents make, or else a lookup by its name.
+	// contents make, or else the game its DLC belongs to, or else a lookup by its
+	// name.
 	async function resolveProduct(product, nested = false) {
 		if (product.steam?.id) {
 			return checkStoreSteamId(product.steam);
@@ -847,7 +849,35 @@ Copyright 2026, SentaiBrad
 			const pack = await product.contents(nested);
 			if (pack) return pack;
 		}
+		if (product.dlc?.length) {
+			const game = await baseGameOfDlc(product.dlc[0]);
+			if (game) return game;
+		}
 		return product.name ? resolveName(product.name) : null;
+	}
+
+	// A store can list an edition with no Steam ID but with its DLC: Fanatical's
+	// Resident Evil 6 Complete lists only DLC IDs. Steam's details for a DLC name
+	// the full game it belongs to (DLC 232570 -> game 221040, Resident Evil 6),
+	// so the edition is that game. Resolves to {type: "app", id} or null.
+	function baseGameOfDlc(dlc_id) {
+		const id = Number(dlc_id);
+		return cachedLookup(`dlc-base:${id}`, `DLC ${id}`, async () => {
+			const response = await steamGet(`https://store.steampowered.com/api/appdetails?appids=${id}&filters=basic&cc=us`, "json");
+			if (!response) return {result: null, cacheable: false};
+			let json = response.response;
+			if (typeof json === "string" || !json) {
+				try { json = JSON.parse(response.responseText); } catch { json = null; }
+			}
+			const details = json?.[id];
+			const game = Number(details?.data?.fullgame?.appid);
+			if (!details?.success || details.data.type !== "dlc" || !game) {
+				debug_log.add("lookup", `DLC ${id}: Steam names no full game`);
+				return {result: null, cacheable: true};
+			}
+			debug_log.add("lookup", `DLC ${id}: belongs to game ${game}`);
+			return {result: {type: "app", id: game}, cacheable: true};
+		});
 	}
 
 	// Turns the products inside a product into a pack. One with a Steam ID is a
@@ -1181,6 +1211,7 @@ Copyright 2026, SentaiBrad
 			name: data.name ?? "",
 			steam: data.steam?.id ? data.steam : null,
 			contents: data.slug ? (nested) => lookupFanaticalContents(data.slug, nested) : null,
+			dlc: data.steam?.dlc ?? [],
 		};
 	}
 
@@ -2347,10 +2378,10 @@ Copyright 2026, SentaiBrad
 			const saved = Object.entries(loadSavedLookups());
 			const kind = (key) => {
 				if (key.startsWith("fanatical-contents:")) return "Fanatical products";
-				if (key.startsWith("package-check:")) return "Package checks";
+				if (key.startsWith("package-check:") || key.startsWith("dlc-base:")) return "Steam ID checks";
 				return "Titles";
 			};
-			for (const name of ["Titles", "Fanatical products", "Package checks"]) {
+			for (const name of ["Titles", "Fanatical products", "Steam ID checks"]) {
 				const entries = saved.filter(([key]) => kind(key) === name);
 				value(name, `${entries.filter(([, e]) => e.match).length} found, ${entries.filter(([, e]) => !e.match).length} not found`);
 			}

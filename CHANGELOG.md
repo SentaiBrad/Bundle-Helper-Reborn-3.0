@@ -1,5 +1,10 @@
 # Changelog
 
+## 3.0.38
+
+- A product with no Steam ID of its own but with a list of its DLC (Fanatical's Resident Evil 6 Complete) is marked as the game that DLC belongs to, read from Steam's own DLC details. In the RE6 Complete & RE7 Double Pack, RE6 Complete is now found, so the pack counts both games.
+- Debug report: the saved-lookups line for package checks is now "Steam ID checks", and also counts these DLC checks.
+
 ## 3.0.37
 
 - The minimized panel bar has an open button at its end, in the panel's button style, so it's clear the bar opens the panel. Hovering the bar lights the button up.
