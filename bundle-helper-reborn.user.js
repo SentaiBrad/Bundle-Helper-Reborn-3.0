@@ -2,7 +2,7 @@
 // @name            Bundle Helper Reborn 3.0
 // @namespace       https://github.com/SentaiBrad/
 // @author          SentaiBrad
-// @version         3.0.42
+// @version         3.0.43
 // @description     Marks the Steam games you own, have wishlisted or ignored on bundle and game store sites (Humble Bundle, Fanatical, Eneba and more), including packs and bundles, with a Steam button on each game.
 // @match           *://dailyindiegame.com/*
 // @match           *://old.reddit.com/*
@@ -737,41 +737,54 @@ Copyright 2026, SentaiBrad
 	// Title lookups are saved between visits. Matches are kept 30 days and misses
 	// 1 day. Changing savedLookupsVersion discards everything (e.g. after the
 	// matching rules change, so old misses get another chance).
+	// Every tab running the script shares the same saved lookups, so each change
+	// reads the stored copy first and changes only its own entries; writing back
+	// a copy read earlier would undo what other tabs saved or cleared since.
 	const savedLookupsKey = "bh_title_cache";
 	const savedLookupsVersion = 5;
 	const savedMatchDays = 30;
 	const savedMissDays = 1;
 	let savedLookups = null;
 
-	function loadSavedLookups() {
-		if (savedLookups) return savedLookups;
+	function readSavedLookups() {
 		const stored = GM_getValue(savedLookupsKey, null);
-		savedLookups = (stored && stored.version === savedLookupsVersion && stored.entries) ? stored.entries : {};
+		const entries = (stored && stored.version === savedLookupsVersion && stored.entries) ? stored.entries : {};
 		const now = getUnixTimestamp();
-		for (const [key, entry] of Object.entries(savedLookups)) {
+		for (const [key, entry] of Object.entries(entries)) {
 			const maxAge = (entry?.days ?? (entry?.match ? savedMatchDays : savedMissDays)) * 86400;
-			if (!entry || !(now - entry.time <= maxAge)) delete savedLookups[key];
+			if (!entry || !(now - entry.time <= maxAge)) delete entries[key];
 		}
+		return entries;
+	}
+
+	function loadSavedLookups() {
+		savedLookups ??= readSavedLookups();
 		return savedLookups;
 	}
 
+	function writeSavedLookups(entries) {
+		savedLookups = entries;
+		GM_setValue(savedLookupsKey, {version: savedLookupsVersion, entries});
+	}
+
+	function saveLookup(key, entry) {
+		const entries = readSavedLookups();
+		entries[key] = entry;
+		writeSavedLookups(entries);
+	}
+
 	function clearSavedMisses() {
-		const cache = loadSavedLookups();
+		const entries = readSavedLookups();
 		let removed = 0;
-		for (const [key, entry] of Object.entries(cache)) {
-			if (!entry.match) { delete cache[key]; removed++; }
+		for (const [key, entry] of Object.entries(entries)) {
+			if (!entry.match) { delete entries[key]; removed++; }
 		}
-		storeSavedLookups();
+		writeSavedLookups(entries);
 		return removed;
 	}
 
 	function clearSavedLookups() {
-		savedLookups = {};
-		storeSavedLookups();
-	}
-
-	function storeSavedLookups() {
-		GM_setValue(savedLookupsKey, {version: savedLookupsVersion, entries: savedLookups});
+		writeSavedLookups({});
 	}
 
 	const pendingLookups = new Map();
@@ -879,19 +892,22 @@ Copyright 2026, SentaiBrad
 	// result; results from failed requests aren't saved. Identical
 	// lookups running at the same time share one request.
 	function cachedLookup(key, description, lookup, days) {
-		const cache = loadSavedLookups();
-		if (cache[key]) {
+		// Another tab may have saved this since the page loaded.
+		const justLoaded = !savedLookups;
+		if (!loadSavedLookups()[key] && !justLoaded) savedLookups = readSavedLookups();
+		const saved = savedLookups[key];
+		if (saved) {
 			requestCounts.saved++;
-			debugLog.add("lookup", `${description} saved result: ${describeMatch(cache[key].match)}`);
-			return Promise.resolve(cache[key].match);
+			debugLog.add("lookup", `${description} saved result: ${describeMatch(saved.match)}`);
+			return Promise.resolve(saved.match);
 		}
 		if (pendingLookups.has(key)) return pendingLookups.get(key);
 
 		const running = lookup().then(({result, cacheable, days: resultDays}) => {
 			if (cacheable) {
-				cache[key] = {match: result, time: getUnixTimestamp()};
-				if (days ?? resultDays) cache[key].days = days ?? resultDays;
-				storeSavedLookups();
+				const entry = {match: result, time: getUnixTimestamp()};
+				if (days ?? resultDays) entry.days = days ?? resultDays;
+				saveLookup(key, entry);
 			}
 			return result;
 		}).finally(() => pendingLookups.delete(key));
@@ -2384,6 +2400,7 @@ Copyright 2026, SentaiBrad
 				return action();
 			}));
 			parent.append(button);
+			return button;
 		};
 		addButton(keyActions, "Save key", "Save the key in your userscript manager", () => {
 			const key = keyInput.value.trim();
@@ -2415,7 +2432,18 @@ Copyright 2026, SentaiBrad
 			clearSavedMisses();
 			location.reload();
 		});
-		addButton(dataActions, "Clear saved lookups", "Forget every saved title, product and bundle lookup", () => {
+		// Saved lookups are shared by every tab, so clearing takes a second click.
+		let clearTimer = 0;
+		const clearButton = addButton(dataActions, "Clear saved lookups", "Forget every saved title, product and bundle lookup, in every tab", () => {
+			if (!clearTimer) {
+				clearButton.textContent = "Click again to clear (all tabs)";
+				clearTimer = setTimeout(() => {
+					clearTimer = 0;
+					clearButton.textContent = "Clear saved lookups";
+				}, 4000);
+				return;
+			}
+			clearTimeout(clearTimer);
 			clearSavedLookups();
 			location.reload();
 		});
@@ -2606,7 +2634,7 @@ Copyright 2026, SentaiBrad
 			if (!sets.ownedApps.size) value("Warning", "no owned apps saved; sign in at store.steampowered.com, then click refresh");
 
 			section("Saved lookups");
-			const saved = Object.entries(loadSavedLookups());
+			const saved = Object.entries(readSavedLookups());
 			const kind = (key) => {
 				if (key.startsWith("fanatical-contents:")) return "Fanatical products";
 				if (key.startsWith("package-check:") || key.startsWith("dlc-base:")) return "Steam ID checks";

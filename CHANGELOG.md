@@ -1,5 +1,10 @@
 # Changelog
 
+## 3.0.43
+
+- **Tabs open at the same time no longer erase each other's saved lookups.** Each tab used to write back the whole copy it read when the page loaded, so the last tab to save wiped what the others had saved, and those titles were looked up on Steam again next time. Now each tab changes only its own entries, and a tab also uses lookups another tab saved after it loaded.
+- **"Clear saved lookups" takes a second click.** Saved lookups are shared by every tab, so the first click asks you to click again; it goes back after 4 seconds. A clear also can't be undone by another tab that was already open.
+
 ## 3.0.42
 
 Steam data reliability:
