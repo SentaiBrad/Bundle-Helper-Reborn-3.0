@@ -2,7 +2,7 @@
 // @name            Bundle Helper Reborn 3.0
 // @namespace       https://github.com/SentaiBrad/
 // @author          SentaiBrad
-// @version         3.0.43
+// @version         3.0.44
 // @description     Marks the Steam games you own, have wishlisted or ignored on bundle and game store sites (Humble Bundle, Fanatical, Eneba and more), including packs and bundles, with a Steam button on each game.
 // @match           *://dailyindiegame.com/*
 // @match           *://old.reddit.com/*
@@ -791,9 +791,15 @@ Copyright 2026, SentaiBrad
 
 	// Steam's search suggestions (games only). Resolves to [{appid, title}] or null on error.
 	async function searchSteamApps(term) {
-		// Steam's search returns nothing when the term contains "+"
-		// ("DOOM + DOOM II"), but finds the game without it.
-		term = term.replace(/\s*\+\s*/g, " ").trim();
+		// Steam's search returns nothing when the term contains "+", " - " or
+		// brackets ("DOOM + DOOM II", "Dungeons - The Dark Lord", "DOOM (2016)"),
+		// but finds the game without them. The full title is still what's matched.
+		term = term
+			.replace(/\([^)]*\)/g, " ")
+			.replace(/\s*\+\s*/g, " ")
+			.replace(/\s+[-–—]\s+/g, " ")
+			.replace(/\s+/g, " ")
+			.trim();
 		const response = await steamGet("https://store.steampowered.com/search/suggest?term=" + encodeURIComponent(term) + "&f=games&cc=US&realm=1&l=english");
 		if (!response) return null;
 		const doc = new DOMParser().parseFromString(response.responseText, "text/html");
@@ -935,6 +941,13 @@ Copyright 2026, SentaiBrad
 	async function resolveName(name) {
 		const match = await resolveTitle(name);
 		if (match) return match;
+		// Stores add the year to tell a remake from the original: "DOOM (2016)"
+		// is Steam's "DOOM".
+		const withoutYear = name.replace(/\s*\((19|20)\d\d\)/, "").trim();
+		if (withoutYear !== name.trim()) {
+			const found = await resolveTitle(withoutYear);
+			if (found) return found;
+		}
 		const parts = name.split(/\s+\+\s+/).map((part) => part.trim()).filter(Boolean);
 		if (parts.length < 2) return null;
 		const matches = await Promise.all(parts.map((part) => resolveTitle(part)));
@@ -1525,13 +1538,25 @@ Copyright 2026, SentaiBrad
 				}
 			`);
 
-			// Only Steam products. Returns the game name, or "" if not a Steam product.
+			// Eneba titles end with the kind of key and the region: "HELLDIVERS 2
+			// Steam Key (PC) GLOBAL", "DOOM + DOOM II (PC) GOG Key GLOBAL". Keys for
+			// other launchers and consoles are matched on Steam too, to show games
+			// already owned there. Returns the game name, or "" for anything else:
+			// accounts, gift cards, page headings that aren't a product.
+			const enebaKeyType = new RegExp("[\\s-]+(pc[\\s-]+)?(" + [
+				"steam", "gog(\\.com)?", "epic games", "ea app", "origin", "ubisoft connect", "uplay",
+				"rockstar( games)?( launcher)?", "battle\\.net", "xbox( live)?", "microsoft store",
+				"psn", "playstation( network)?", "nintendo( eshop)?", "eshop",
+			].join("|") + ")[\\s-]+(cd[\\s-]+)?(key|gift|altergift|code)\\b.*$", "i");
+			const enebaPlatform = /\s*\((pc|mac|linux|windows|pc\/mac|dlc|xbox[^)]*|ps[45][^)]*|playstation[^)]*|nintendo[^)]*|switch[^)]*)\)/gi;
+
 			function enebaGameName(title) {
-				if (!/\bsteam\b/i.test(title)) return "";
-				return title
-					.replace(/\s*\((PC|Mac|Linux)\)\s*/gi, " ")
-					.replace(/\s+steam\s+(cd\s+)?(key|gift|account)\b.*$/i, "")
-					.trim();
+				const cleaned = title.replace(enebaPlatform, " ").replace(/\s+/g, " ").trim();
+				if (!enebaKeyType.test(cleaned)) return "";
+				const name = cleaned.replace(enebaKeyType, "").trim();
+				// Mystery keys ("1 Random Steam Key") and gift cards aren't a game.
+				if (/^(\d+x?\s+)?random(\s+\d+)?$/i.test(name) || /\b(gift card|wallet)\b/i.test(name)) return "";
+				return name;
 			}
 
 			// Largest ancestor (up to 8 levels) that still contains only this

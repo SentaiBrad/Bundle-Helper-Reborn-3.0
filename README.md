@@ -42,7 +42,7 @@ Updates are picked up automatically from this repository.
 |---|---|---|
 | Humble Bundle | Game title, looked up on Steam | Working |
 | Fanatical | Fanatical's own product data, which includes Steam IDs; title lookup for products without one | Working |
-| Eneba | Game title, looked up on Steam (Steam products only) | Working on store listings; product pages not yet checked |
+| Eneba | Game title, looked up on Steam (keys for any launcher or console, checked against your Steam library) | Working on store listings; product pages not yet checked |
 | itch.io | Game title, looked up on Steam | Not working: titles are read as empty. `itch.io` only, not creator pages (`name.itch.io`). |
 | old.reddit.com | Steam links in posts | Not working: the script never runs there |
 | AStats, DailyIndieGame, IndieGala, SGTools, SteamGifts, SteamGround | Steam links, images or IDs on the page | Carried over from 2.x, not yet checked in 3.0 |

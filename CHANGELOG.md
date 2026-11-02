@@ -1,5 +1,14 @@
 # Changelog
 
+## 3.0.44
+
+Matching names:
+
+- **Eneba keys for other launchers and consoles are checked against your Steam library.** GOG, EA app, Ubisoft Connect, Epic, Xbox, PlayStation and Nintendo keys used to be skipped. Now a game you already own on Steam is marked, whatever platform the key is for. Only Steam ownership is checked.
+- **More names are found on Steam.** Steam's search finds nothing when the name has brackets or " - " in it ("Dungeons - The Dark Lord", "DOOM (2016)"), so those are left out of the search; the full name is still what's matched. A year in brackets is also dropped when nothing matches with it: "DOOM (2016)" is Steam's "DOOM".
+- **Eneba titles are cleaned up better:** "(DLC)" and console names in brackets, "PC" without brackets, "Steam Altergift" and dashes between the words are removed.
+- **Eneba items that aren't games are left alone:** mystery keys ("1 Random"), gift cards, Steam accounts, and page headings that aren't a product (such as "Steam Gift Cards").
+
 ## 3.0.43
 
 - **Tabs open at the same time no longer erase each other's saved lookups.** Each tab used to write back the whole copy it read when the page loaded, so the last tab to save wiped what the others had saved, and those titles were looked up on Steam again next time. Now each tab changes only its own entries, and a tab also uses lookups another tab saved after it loaded.
