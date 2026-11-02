@@ -2,7 +2,7 @@
 // @name            Bundle Helper Reborn 3.0
 // @namespace       https://github.com/SentaiBrad/
 // @author          SentaiBrad
-// @version         3.0.46
+// @version         3.0.47
 // @description     Marks the Steam games you own, have wishlisted or ignored on bundle and game store sites (Humble Bundle, Fanatical, Eneba and more), including packs and bundles, with a Steam button on each game.
 // @match           *://dailyindiegame.com/*
 // @match           *://old.reddit.com/*
@@ -79,6 +79,9 @@ Copyright 2026, SentaiBrad
 			choices: [["left", "Left"], ["right", "Right"]]},
 		{id: "card_labels", group: "Marking", label: "Labels on cards", type: "switch", default: true},
 		{id: "background_tabs", group: "Links", label: "Steam links open in a background tab", type: "switch", default: true},
+		{id: "steam_requests", group: "Steam", label: "Requests at once", type: "choice", default: "4",
+			choices: [["1", "1"], ["4", "4"], ["8", "8"]],
+			info: "How many lookups the script sends to Steam at the same time. Steam allows only so many requests in a few minutes; going over gets you a short block. 8 is faster on big pages but reaches that limit sooner. 1 is gentlest on slow connections. The script pauses for a minute whenever Steam says too many."},
 		{id: "use_api_key", group: "Steam Web API (optional)", label: "Use my API key", type: "switch", default: false},
 	];
 
@@ -444,7 +447,7 @@ Copyright 2026, SentaiBrad
 	const recordedItems = new Set();
 
 	// Requests made on this page, by where they went.
-	const requestCounts = {steam_search: 0, steam_app_details: 0, steam_package_details: 0, fanatical: 0, saved: 0};
+	const requestCounts = {steam_search: 0, steam_app_details: 0, steam_package_details: 0, fanatical: 0, saved: 0, most_at_once: 0, too_many: 0};
 
 	// How many items each site rule found on its latest scan. A rule that
 	// suddenly finds 0 usually means the site changed its layout.
@@ -599,24 +602,64 @@ Copyright 2026, SentaiBrad
 		return steamSets;
 	}
 
+	// Steam's store doesn't publish its limits; others measured roughly 200
+	// requests in 5 minutes per address, and kept sending after "too many
+	// requests" (HTTP 429) got them blocked. So lookups wait in line, a few at a
+	// time (the "Requests at once" setting), and all of them stop for a minute
+	// after a 429.
+	const steamPauseMs = 60 * 1000;
+	const steamQueue = [];
+	let steamActive = 0;
+	let steamPausedUntil = 0;
+
 	// GET from store.steampowered.com. Resolves to the response, or null on a
-	// network/HTTP error (so the caller knows not to cache a miss).
+	// network/HTTP error or during a pause (so the caller knows not to cache a miss).
 	function steamGet(url, responseType) {
 		if (url.includes("/search/suggest") || url.includes("/search/results")) requestCounts.steam_search++;
 		else if (url.includes("/api/appdetails")) requestCounts.steam_app_details++;
 		else if (url.includes("/api/packagedetails")) requestCounts.steam_package_details++;
 		return new Promise((resolve) => {
+			steamQueue.push({url, responseType, resolve});
+			runSteamQueue();
+		});
+	}
+
+	function runSteamQueue() {
+		const limit = Number(getSetting("steam_requests")) || 4;
+		while (steamActive < limit && steamQueue.length) {
+			const {url, responseType, resolve} = steamQueue.shift();
+			if (Date.now() < steamPausedUntil) {
+				resolve(null);
+				continue;
+			}
+			steamActive++;
+			requestCounts.most_at_once = Math.max(requestCounts.most_at_once, steamActive);
+			const done = (response) => {
+				steamActive--;
+				resolve(response);
+				runSteamQueue();
+			};
 			GM_xmlhttpRequest({
 				method: "GET",
 				url: url,
 				responseType: responseType,
 				timeout: steamRequestTimeoutMs,
-				onload: (response) => resolve(response.status === 200 ? response : null),
-				onerror: () => resolve(null),
-				onabort: () => resolve(null),
-				ontimeout: () => resolve(null),
+				onload: (response) => {
+					if (response.status === 429) pauseSteamRequests();
+					done(response.status === 200 ? response : null);
+				},
+				onerror: () => done(null),
+				onabort: () => done(null),
+				ontimeout: () => done(null),
 			});
-		});
+		}
+	}
+
+	function pauseSteamRequests() {
+		requestCounts.too_many++;
+		if (Date.now() < steamPausedUntil) return;
+		steamPausedUntil = Date.now() + steamPauseMs;
+		debugLog.add("steam", "Steam answered \"too many requests\"; Steam lookups paused for 1 minute. Nothing looked up meanwhile is saved as a miss.");
 	}
 
 	//////////////////////////////////////////////////
@@ -2225,6 +2268,7 @@ Copyright 2026, SentaiBrad
 		.choices { display: flex; border: 1px solid #4b5a6b; border-radius: 0.2em; overflow: hidden; flex: none; }
 		.choices button { padding: 0 0.5em; font-size: 0.92em; }
 		.choices button[aria-pressed="true"] { background: #2a475e; color: #fff; }
+		.info { display: inline-flex; align-items: center; justify-content: center; width: 1.15em; height: 1.15em; margin-left: 0.4em; border: 1px solid currentColor; border-radius: 50%; font-size: 0.75em; font-style: italic; color: #8f98a0; cursor: help; vertical-align: middle; }
 		input { box-sizing: border-box; width: 100%; margin-top: 0.3em; padding: 0.15em 0.3em; font: 0.92em monospace; color: rgb(198, 212, 223); background: rgb(23, 29, 37); border: 1px solid #4b5a6b; }
 		.note { color: #8ea2b8; font-size: 0.92em; }
 		.tabs { display: flex; align-items: center; gap: 0.4em; padding: 0.45em 0.7em; border-bottom: 1px solid #2a475e; }
@@ -2424,6 +2468,14 @@ Copyright 2026, SentaiBrad
 			row.className = "setting";
 			const label = document.createElement("span");
 			label.textContent = definition.label;
+			if (definition.info) {
+				const info = document.createElement("span");
+				info.className = "info";
+				info.textContent = "i";
+				info.title = definition.info;
+				info.setAttribute("aria-label", definition.info);
+				label.append(info);
+			}
 			row.append(label);
 			if (definition.type === "switch") {
 				const control = document.createElement("button");
@@ -2722,6 +2774,8 @@ Copyright 2026, SentaiBrad
 			value("Steam package details", requestCounts.steam_package_details);
 			value("Fanatical data", requestCounts.fanatical);
 			value("Answered from saved lookups", requestCounts.saved);
+			value("Steam requests at once", `${requestCounts.most_at_once} at most (setting ${getSetting("steam_requests")})`);
+			value("Steam said too many requests", requestCounts.too_many ? `${requestCounts.too_many === 1 ? "once" : `${requestCounts.too_many} times`}; lookups paused for 1 minute` : "never");
 
 			section("This page");
 			value("Items seen", pageItems.length);

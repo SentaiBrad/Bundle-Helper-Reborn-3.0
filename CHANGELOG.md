@@ -1,5 +1,11 @@
 # Changelog
 
+## 3.0.47
+
+- **Steam requests wait in line, 4 at a time.** A page with many new titles used to send every lookup at once (19 searches within a second on a Humble bundle). Steam doesn't publish its limits, but others have measured roughly 200 requests in 5 minutes, and keeping on after Steam says "too many requests" can get you blocked for a while. Lookups now run 4 at a time, which barely changes how fast a page is marked.
+- **New setting: Requests at once (1, 4 or 8).** 8 is faster on big pages but reaches Steam's limit sooner; 1 suits slow connections. Hover the "i" next to it for a short explanation.
+- **When Steam says "too many requests", lookups pause for a minute.** Nothing looked up during the pause is saved as "not found", so it's tried again later. The debug report shows the most requests that ran at once and whether Steam said too many.
+
 ## 3.0.46
 
 Matching names:
