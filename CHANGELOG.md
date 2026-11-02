@@ -1,5 +1,12 @@
 # Changelog
 
+## 3.0.46
+
+Matching names:
+
+- **Exact names hidden by Steam's quick search are found.** The quick search shows only a few results, so a short name could be pushed out by longer ones: "Mystical" was behind "Mystical Map", "Mystical Tactics" and three others. When the quick search is full and has no exact match, the store's full search (50 results) is checked too.
+- **A store's own edition of a game counts as the game.** "Paradise Killer: Perfect 25 Edition" isn't sold on Steam under that name; when the part before ":" is exactly a Steam game's name and nothing else matches, that game is used.
+
 ## 3.0.45
 
 - **The panel stays on top of other add-ons.** Another add-on's bar along the bottom of the page (seen with a deals extension on Eneba) could cover the panel completely. The panel is now shown in the browser's top layer, above everything else on the page; browsers without that feature get the highest possible layer instead.

@@ -2,7 +2,7 @@
 // @name            Bundle Helper Reborn 3.0
 // @namespace       https://github.com/SentaiBrad/
 // @author          SentaiBrad
-// @version         3.0.45
+// @version         3.0.46
 // @description     Marks the Steam games you own, have wishlisted or ignored on bundle and game store sites (Humble Bundle, Fanatical, Eneba and more), including packs and bundles, with a Steam button on each game.
 // @match           *://dailyindiegame.com/*
 // @match           *://old.reddit.com/*
@@ -602,7 +602,7 @@ Copyright 2026, SentaiBrad
 	// GET from store.steampowered.com. Resolves to the response, or null on a
 	// network/HTTP error (so the caller knows not to cache a miss).
 	function steamGet(url, responseType) {
-		if (url.includes("/search/suggest")) requestCounts.steam_search++;
+		if (url.includes("/search/suggest") || url.includes("/search/results")) requestCounts.steam_search++;
 		else if (url.includes("/api/appdetails")) requestCounts.steam_app_details++;
 		else if (url.includes("/api/packagedetails")) requestCounts.steam_package_details++;
 		return new Promise((resolve) => {
@@ -790,16 +790,40 @@ Copyright 2026, SentaiBrad
 	const pendingLookups = new Map();
 
 	// Steam's search suggestions (games only). Resolves to [{appid, title}] or null on error.
-	async function searchSteamApps(term) {
-		// Steam's search returns nothing when the term contains "+", " - " or
-		// brackets ("DOOM + DOOM II", "Dungeons - The Dark Lord", "DOOM (2016)"),
-		// but finds the game without them. The full title is still what's matched.
-		term = term
+	// Cleans a store name for Steam's searches, which find nothing when the
+	// term contains "+", " - " or brackets ("DOOM + DOOM II", "Dungeons - The
+	// Dark Lord", "DOOM (2016)") but find the game without them. The full title
+	// is still what's matched.
+	function searchTerm(name) {
+		return name
 			.replace(/\([^)]*\)/g, " ")
 			.replace(/\s*\+\s*/g, " ")
 			.replace(/\s+[-–—]\s+/g, " ")
 			.replace(/\s+/g, " ")
 			.trim();
+	}
+
+	// The store's full search, used when the quick search's few results may
+	// have pushed an exact name out ("Mystical" behind "Mystical Map" and four
+	// others). Resolves to [{appid, title}] for games, or null on error.
+	async function searchSteamStore(term) {
+		const response = await steamGet("https://store.steampowered.com/search/results/?term=" + encodeURIComponent(searchTerm(term)) + "&json=1&cc=US&l=english", "json");
+		if (!response) return null;
+		let json = response.response;
+		if (typeof json === "string" || !json) {
+			try { json = JSON.parse(response.responseText); } catch { return null; }
+		}
+		const decode = (text) => new DOMParser().parseFromString(text, "text/html").documentElement.textContent;
+		const candidates = [];
+		for (const item of json?.items ?? []) {
+			const appid = Number(String(item.logo ?? "").match(/\/apps\/(\d+)\//)?.[1]);
+			if (appid && item.name) candidates.push({appid, title: decode(item.name)});
+		}
+		return candidates;
+	}
+
+	async function searchSteamApps(term) {
+		term = searchTerm(term);
 		const response = await steamGet("https://store.steampowered.com/search/suggest?term=" + encodeURIComponent(term) + "&f=games&cc=US&realm=1&l=english");
 		if (!response) return null;
 		const doc = new DOMParser().parseFromString(response.responseText, "text/html");
@@ -850,6 +874,17 @@ Copyright 2026, SentaiBrad
 		log("search results:", candidates.map((c) => `${c.appid} ${c.title}`));
 		const appid = pickSteamMatch(title, candidates);
 		if (appid) { log("matched game", appid); return {result: {type: "app", id: appid}, cacheable: true}; }
+		// The quick search lists only a handful of results; when it's full, the
+		// exact name may be further down, so ask the full search too.
+		if (candidates.length >= 5) {
+			const more = await searchSteamStore(title);
+			log("full search results:", more === null ? "ERROR" : more.slice(0, 10).map((c) => `${c.appid} ${c.title}`));
+			if (more === null) hadError = true;
+			else {
+				const found = pickSteamMatch(title, more);
+				if (found) { log("matched game", found); return {result: {type: "app", id: found}, cacheable: true}; }
+			}
+		}
 
 		// Package fallback: compilations and editions sold as Steam packages.
 		// Search the part before ":" or " - " ("FEAR"), then check the packages
@@ -857,7 +892,9 @@ Copyright 2026, SentaiBrad
 		const base = title.split(/:|\s[-–—]\s/)[0].trim();
 		const wanted = normalizeTitle(spellGreek(title));
 		const games = [];
+		const candidatesSeen = [];
 		const addGames = (list) => {
+			candidatesSeen.push(...list);
 			for (const c of list) {
 				const key = normalizeTitle(spellGreek(c.title));
 				if (key && (wanted === key || wanted.startsWith(key + " ")) && !games.includes(c.appid)) games.push(c.appid);
@@ -886,6 +923,14 @@ Copyright 2026, SentaiBrad
 			if (packages === null) { hadError = true; continue; }
 			const packageid = pickSteamMatch(title, packages);
 			if (packageid) { log("matched package", packageid); return {result: {type: "sub", id: packageid}, cacheable: true}; }
+		}
+		// A store's own edition of a game ("Paradise Killer: Perfect 25 Edition")
+		// that Steam doesn't sell under that name is the game itself, as long as
+		// the name before ":" or " - " is exactly that game's.
+		if (!hadError && /\bedition$/i.test(title.trim())) {
+			const baseKey = normalizeTitle(spellGreek(base));
+			const game = candidatesSeen.find((c) => normalizeTitle(spellGreek(c.title)) === baseKey);
+			if (game) { log("edition of game", game.appid); return {result: {type: "app", id: game.appid}, cacheable: true}; }
 		}
 		log(hadError ? "no match (an error occurred, not saved)" : "no match (saved as a miss for 1 day)");
 		return {result: null, cacheable: !hadError};
