@@ -1,5 +1,9 @@
 # Changelog
 
+## 3.0.45
+
+- **The panel stays on top of other add-ons.** Another add-on's bar along the bottom of the page (seen with a deals extension on Eneba) could cover the panel completely. The panel is now shown in the browser's top layer, above everything else on the page; browsers without that feature get the highest possible layer instead.
+
 ## 3.0.44
 
 Matching names:

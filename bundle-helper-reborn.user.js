@@ -2,7 +2,7 @@
 // @name            Bundle Helper Reborn 3.0
 // @namespace       https://github.com/SentaiBrad/
 // @author          SentaiBrad
-// @version         3.0.44
+// @version         3.0.45
 // @description     Marks the Steam games you own, have wishlisted or ignored on bundle and game store sites (Humble Bundle, Fanatical, Eneba and more), including packs and bundles, with a Steam button on each game.
 // @match           *://dailyindiegame.com/*
 // @match           *://old.reddit.com/*
@@ -2590,7 +2590,7 @@ Copyright 2026, SentaiBrad
 	// with the same way to report the problem.
 	function showFallbackNotice() {
 		const notice = document.createElement("bundle-helper-notice");
-		notice.style.cssText = "all: initial; position: fixed; left: 0; bottom: 0; z-index: 99; padding: 0.4em 0.8em; font: 13px/1.5 Arial, Helvetica, sans-serif; color: #ff6b6b; background: rgb(15, 25, 36); border: 1px solid #2a475e;";
+		notice.style.cssText = "all: initial; position: fixed; left: 0; bottom: 0; z-index: 2147483647; padding: 0.4em 0.8em; font: 13px/1.5 Arial, Helvetica, sans-serif; color: #ff6b6b; background: rgb(15, 25, 36); border: 1px solid #2a475e;";
 		notice.textContent = "Bundle Helper: something went wrong. ";
 		const link = document.createElement("a");
 		link.href = issuesUrl;
@@ -2738,6 +2738,13 @@ Copyright 2026, SentaiBrad
 	function addBundleHelperUI() {
 		thePanel = createPanel();
 		document.body.appendChild(thePanel.host);
+		// Other add-ons put their own bars along the bottom of the page. The
+		// browser's top layer keeps the panel above them; browsers without
+		// popovers fall back to the highest z-index.
+		if (typeof thePanel.host.showPopover === "function") {
+			thePanel.host.popover = "manual";
+			thePanel.host.showPopover();
+		}
 		return thePanel;
 	}
 
@@ -2762,11 +2769,19 @@ Copyright 2026, SentaiBrad
 
 	function addMarkingStyles() {
 		GM_addStyle(`
-			/* The corner panel; its corner and size come from the settings. */
+			/* The corner panel; its corner and size come from the settings. It's
+			   shown as a popover when the browser supports it, which puts it above
+			   everything else; these rules undo the browser's popover look. */
 			bundle-helper {
 				position: fixed;
+				inset: auto;
 				bottom: 0;
-				z-index: 99;
+				z-index: 2147483647;
+				margin: 0;
+				padding: 0;
+				border: 0;
+				background: transparent;
+				overflow: visible;
 			}
 			.bh_no_card_labels bh-label {
 				display: none !important;
