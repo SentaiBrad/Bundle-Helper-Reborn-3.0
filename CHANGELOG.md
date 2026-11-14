@@ -1,5 +1,9 @@
 # Changelog
 
+## 3.0.52
+
+- **A partly owned pack on Humble is marked once.** A card naming two games ("Game One + Game Two") with only one owned got an outline around the whole card as well as the frame on its cover. Now it gets the frame only, like every other marked card.
+
 ## 3.0.51
 
 - **Humble book bundles are left alone.** Books aren't on Steam, so their cards are no longer considered. Today they were already skipped, only because Humble gives book covers no name; a book named like a game can't be marked as that game if that changes. Software bundles are still checked.

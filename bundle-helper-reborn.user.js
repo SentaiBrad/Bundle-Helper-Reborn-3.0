@@ -2,7 +2,7 @@
 // @name            Bundle Helper Reborn 3.0
 // @namespace       https://github.com/SentaiBrad/
 // @author          SentaiBrad
-// @version         3.0.51
+// @version         3.0.52
 // @description     Marks the Steam games you own, have wishlisted or ignored on bundle and game store sites (Humble Bundle, Fanatical, Eneba and more), including packs and bundles, with a Steam button on each game.
 // @match           *://dailyindiegame.com/*
 // @match           *://old.reddit.com/*
@@ -1921,9 +1921,11 @@ Copyright 2026, SentaiBrad
 				.bh_basic_style [data-testid="bundle-item-card"].bh_owned,
 				.bh_basic_style [data-testid="bundle-item-card"].bh_wished,
 				.bh_basic_style [data-testid="bundle-item-card"].bh_ignored,
+				.bh_basic_style [data-testid="bundle-item-card"].bh_partial,
 				.bh_basic_style [data-testid="product-card"].bh_owned,
 				.bh_basic_style [data-testid="product-card"].bh_wished,
-				.bh_basic_style [data-testid="product-card"].bh_ignored {
+				.bh_basic_style [data-testid="product-card"].bh_ignored,
+				.bh_basic_style [data-testid="product-card"].bh_partial {
 					outline: none !important;
 				}
 				[data-testid="product-thumbnail"] .bh_steamlink {
@@ -2824,7 +2826,7 @@ Copyright 2026, SentaiBrad
 			value("Steam buttons", count(".bh_steamlink"));
 			value("Processed elements", count(".bh_already_processed"));
 			value("Page watchers", activeMutationObservers.length);
-		value("Panel put back after the site removed it", debugState.panel_put_back);
+			value("Panel put back after the site removed it", debugState.panel_put_back);
 			value("Page scans", `${scanStats.count}, slowest ${scanStats.slowest_ms} ms, average ${scanStats.count ? Math.round(scanStats.total_ms / scanStats.count) : 0} ms`);
 			const duplicates = [...document.querySelectorAll(".bh_already_processed")].filter((el) => el.querySelectorAll(".bh_steamlink").length > 1).length;
 			value("Items with more than one Steam button", duplicates);
