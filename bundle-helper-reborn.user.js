@@ -2,7 +2,7 @@
 // @name            Bundle Helper Reborn 3.0
 // @namespace       https://github.com/SentaiBrad/
 // @author          SentaiBrad
-// @version         3.0.47
+// @version         3.0.48
 // @description     Marks the Steam games you own, have wishlisted or ignored on bundle and game store sites (Humble Bundle, Fanatical, Eneba and more), including packs and bundles, with a Steam button on each game.
 // @match           *://dailyindiegame.com/*
 // @match           *://old.reddit.com/*
@@ -1913,19 +1913,16 @@ Copyright 2026, SentaiBrad
 			, 1000);
 		},
 		"humblebundle.com": function() {
-			// Bundle pages: tiles matched by title.
+			// Bundle pages: cards matched by title.
 			document.body.classList.add("bh_basic_style");
 			GM_addStyle(`
-				/* Humble: frame and label on the image (.bh_card), not the whole tile. */
-				.bh_basic_style .tier-item-view.bh_owned,
-				.bh_basic_style .tier-item-view.bh_wished,
-				.bh_basic_style .tier-item-view.bh_ignored {
+				/* Humble: frame and label on the image (.bh_card), not the whole card. */
+				.bh_basic_style [data-testid="bundle-item-card"].bh_owned,
+				.bh_basic_style [data-testid="bundle-item-card"].bh_wished,
+				.bh_basic_style [data-testid="bundle-item-card"].bh_ignored {
 					outline: none !important;
 				}
-				.tier-item-view .img-container {
-					position: relative;
-				}
-				.tier-item-view .img-container .bh_steamlink {
+				[data-testid="bundle-item-card"] [data-testid="product-thumbnail"] .bh_steamlink {
 					position: absolute;
 					bottom: 4px;
 					right: 4px;
@@ -1933,26 +1930,27 @@ Copyright 2026, SentaiBrad
 				}
 			`);
 
-
-
-			function processTiles() {
-				noteRule("Humble tiles (.tier-item-view)", document.querySelectorAll(".tier-item-view").length);
-				for (const tile of document.querySelectorAll(".tier-item-view:not(.bh_already_processed)")) {
-					tile.classList.add("bh_already_processed");
-					const titleElem = tile.querySelector(".item-title");
-					if (!titleElem) continue;
-					const title = ownText(titleElem);
-					if (!title) debugLog.add("error", `Humble tile title came out empty; tile text is ${JSON.stringify(titleElem.textContent.trim().slice(0, 80))}`);
-					lookUpAndMark(title, "Humble title, looked up on Steam", (match) => {
-						const imgContainer = tile.querySelector(".img-container");
-						if (imgContainer) makeCard(imgContainer);
-						markMatch(tile, match, (link) => imgContainer?.appendChild(link));
+			// Bundle cards are named by their cover's alt text, which is the same
+			// as the title under it. Humble's class names only describe styling, so
+			// its data-testid attributes are used. Each card sits inside a button
+			// that opens Humble's game details; the Steam button stops its click
+			// there, so it doesn't open them too.
+			function processBundleCards() {
+				noteRule("Humble bundle cards ([data-testid=bundle-item-card])", document.querySelectorAll('[data-testid="bundle-item-card"]').length);
+				for (const card of document.querySelectorAll('[data-testid="bundle-item-card"]:not(.bh_already_processed)')) {
+					const thumbnail = card.querySelector('[data-testid="product-thumbnail"]');
+					const name = thumbnail?.querySelector("img")?.alt?.trim();
+					if (!name) continue;   // the cover isn't there yet; the next scan tries again
+					card.classList.add("bh_already_processed");
+					lookUpAndMark(name, "Humble bundle card, looked up on Steam", (match) => {
+						makeCard(thumbnail);
+						markMatch(card, match, (link) => thumbnail.appendChild(link));
 					});
 				}
 			}
 
-			processTiles();
-			watchAllForChanges("body", processTiles, 2000);
+			processBundleCards();
+			watchAllForChanges("body", processBundleCards, 2000);
 		},
 		"indiegala.com": function() {
 			// Store, bundle and search pages: Steam app IDs in data-prod-id, and bundle images.

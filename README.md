@@ -40,7 +40,7 @@ Updates are picked up automatically from this repository.
 
 | Site | How games are recognized | Status |
 |---|---|---|
-| Humble Bundle | Game title, looked up on Steam | Working |
+| Humble Bundle | Game title, looked up on Steam | Working on bundle pages |
 | Fanatical | Fanatical's own product data, which includes Steam IDs; title lookup for products without one | Working |
 | Eneba | Game title, looked up on Steam (keys for any launcher or console, checked against your Steam library) | Working on store listings; product pages not yet checked |
 | itch.io | Game title, looked up on Steam | Not working: titles are read as empty. `itch.io` only, not creator pages (`name.itch.io`). |
