@@ -2,7 +2,7 @@
 // @name            Bundle Helper Reborn 3.0
 // @namespace       https://github.com/SentaiBrad/
 // @author          SentaiBrad
-// @version         3.0.56
+// @version         3.0.57
 // @description     Marks the Steam games you own, have wishlisted or ignored on bundle and game store sites (Humble Bundle, Fanatical, Eneba and more), including packs and bundles, with a Steam button on each game.
 // @match           *://dailyindiegame.com/*
 // @match           *://sgtools.info/*
@@ -1830,12 +1830,18 @@ Copyright 2026, SentaiBrad
 			// the script started, for example in a tab opened in the background or
 			// on a slow computer. Then, once the page has loaded and none of its
 			// product covers has data, the script asks for that page's data itself,
-			// once per page.
+			// once per page. Fanatical also changes pages without reloading; the
+			// hook gets the same 2 seconds on each new page, since the page asks
+			// for its data then too.
 			const productCardSelector = ".bundle-game-card, .bundle-product-card, .NewPickAndMixCard, .PickAndMixCard, .ProductHeader.container";
 			const fallbackRequested = new Set();
 			let hookHadItsChance = false;
+			let fallbackPage = location.pathname;
+			let fallbackTimer = 0;
 			function startFallbackTimer() {
-				setTimeout(guard("Fanatical data fallback", () => {
+				clearTimeout(fallbackTimer);
+				hookHadItsChance = false;
+				fallbackTimer = setTimeout(guard("Fanatical data fallback", () => {
 					hookHadItsChance = true;
 					rescanSoon();
 				}), 2000);
@@ -1854,6 +1860,11 @@ Copyright 2026, SentaiBrad
 			}
 
 			async function requestMissedPageData() {
+				if (location.pathname !== fallbackPage) {
+					fallbackPage = location.pathname;
+					startFallbackTimer();
+					return;
+				}
 				if (!hookHadItsChance) return;
 				const url = pageDataUrl();
 				if (!url || fallbackRequested.has(url)) return;

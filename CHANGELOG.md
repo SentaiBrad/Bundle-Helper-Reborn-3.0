@@ -1,5 +1,9 @@
 # Changelog
 
+## 3.0.57
+
+- **Fanatical: no extra data request after moving to another page.** When Fanatical changes pages without reloading, the script could ask for the new page's product data itself before Fanatical's own request had arrived, so the data was fetched twice. Now it waits 2 seconds on every new page, as it does on the first one, before asking.
+
 ## 3.0.56
 
 - **The script starts as soon as a page does.** It used to wait until the page had finished loading, which your userscript manager decides on its own (Tampermonkey and Violentmonkey even differ). Now it starts right away: your Steam data and Fanatical's product data are read from the very start, and the panel and marking follow as soon as the page's content is there. On Fanatical, this should make a background tab or a slow computer miss the page's data less often; the script still asks for it itself when it does.
