@@ -2,7 +2,7 @@
 // @name            Bundle Helper Reborn 3.0
 // @namespace       https://github.com/SentaiBrad/
 // @author          SentaiBrad
-// @version         3.0.50
+// @version         3.0.51
 // @description     Marks the Steam games you own, have wishlisted or ignored on bundle and game store sites (Humble Bundle, Fanatical, Eneba and more), including packs and bundles, with a Steam button on each game.
 // @match           *://dailyindiegame.com/*
 // @match           *://old.reddit.com/*
@@ -1938,10 +1938,12 @@ Copyright 2026, SentaiBrad
 			// as the title under it. Humble's class names only describe styling, so
 			// its data-testid attributes are used. Each card sits inside a button
 			// that opens Humble's game details; the Steam button stops its click
-			// there, so it doesn't open them too.
+			// there, so it doesn't open them too. Books are left alone: they aren't
+			// on Steam, and one named like a game would be marked as that game.
+			const bundleCardSelector = '[data-testid="bundle-item-card"]:not([data-bundle-type="books"])';
 			function processBundleCards() {
-				noteRule("Humble bundle cards ([data-testid=bundle-item-card])", document.querySelectorAll('[data-testid="bundle-item-card"]').length);
-				for (const card of document.querySelectorAll('[data-testid="bundle-item-card"]:not(.bh_already_processed)')) {
+				noteRule("Humble bundle cards ([data-testid=bundle-item-card], not books)", document.querySelectorAll(bundleCardSelector).length);
+				for (const card of document.querySelectorAll(`${bundleCardSelector}:not(.bh_already_processed)`)) {
 					const thumbnail = card.querySelector('[data-testid="product-thumbnail"]');
 					const name = thumbnail?.querySelector("img")?.alt?.trim();
 					if (!name) continue;   // the cover isn't there yet; the next scan tries again

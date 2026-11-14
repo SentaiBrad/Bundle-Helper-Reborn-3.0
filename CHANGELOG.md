@@ -1,5 +1,9 @@
 # Changelog
 
+## 3.0.51
+
+- **Humble book bundles are left alone.** Books aren't on Steam, so their cards are no longer considered. Today they were already skipped, only because Humble gives book covers no name; a book named like a game can't be marked as that game if that changes. Software bundles are still checked.
+
 ## 3.0.50
 
 - **The panel stays on Humble.** Since Humble rebuilt its site, the panel could appear and then vanish: Humble draws its page again after loading and removes everything it didn't make, the panel included. The panel is now put back whenever a site removes it, on every site. The debug report counts how often that happened.
