@@ -1,5 +1,13 @@
 # Changelog
 
+## 3.0.61
+
+Matching names:
+
+- **Deluxe and other editions are found.** Steam's search finds nothing for "NBA 2K27 Deluxe Edition", "Resident Evil Requiem Deluxe Edition" or "Hogwarts Legacy Digital Deluxe Edition". When a name with edition words at its end isn't found, the game is now searched without them, and the edition is matched to Steam's own package of that name when there is one (checked: all three are). If Steam has no such package, the edition counts as the game, as before.
+- **An edition name missing "Edition" is matched.** "METAL GEAR SOLID Δ: SNAKE EATER DIGITAL DELUXE" is Steam's "…Digital Deluxe Edition" package. It used to tie with the standard "…SNAKE EATER" package, so neither was picked.
+- Names saved as "not found" are kept for a day; click **Retry misses** in the panel to look them up again right away.
+
 ## 3.0.60
 
 - **Fanatical: the Steam button sits bottom-right on the cover on every card.** The grid, flash-deal and other listing cards had it in the price bar at the bottom of the card. Checked on the deals, home, top sellers, search, bundle and pick-and-mix pages. Game pages keep it next to the title.

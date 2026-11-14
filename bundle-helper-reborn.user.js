@@ -2,7 +2,7 @@
 // @name            Bundle Helper Reborn 3.0
 // @namespace       https://github.com/SentaiBrad/
 // @author          SentaiBrad
-// @version         3.0.60
+// @version         3.0.61
 // @description     Marks the Steam games you own, have wishlisted or ignored on bundle and game store sites (Humble Bundle, Fanatical, Eneba and more), including packs and bundles, with a Steam button on each game.
 // @match           *://dailyindiegame.com/*
 // @match           *://sgtools.info/*
@@ -755,13 +755,30 @@ Copyright 2026, SentaiBrad
 
 	// Each attempt turns a raw title into a comparison key. Attempts run in
 	// order and only the first one that finds exactly one Steam result wins.
+	// Leaving out only a final "edition" comes before leaving out every edition
+	// word: "…SNAKE EATER DIGITAL DELUXE" is Steam's "…SNAKE EATER Digital
+	// Deluxe Edition", not its "…SNAKE EATER", though all edition words left
+	// out, the two are the same.
 	const titleMatchAttempts = [
 		(t) => normalizeTitle(t),
 		(t) => normalizeTitle(spellGreek(t)),
 		(t) => normalizeTitle(removeBrackets(spellGreek(t))),
 		(t) => romanToDigits(normalizeTitle(removeBrackets(spellGreek(t)))),
+		(t) => romanToDigits(normalizeTitle(removeBrackets(spellGreek(t)))).replace(/\s+edition$/, ""),
 		(t) => removeEdition(romanToDigits(normalizeTitle(removeBrackets(spellGreek(t))))),
 	];
+
+	// A store title without the edition at its end, as written, for searching:
+	// Steam's search finds nothing for "NBA 2K27 Deluxe Edition" but finds
+	// "NBA 2K27". Leaves out edition words at the end ("Digital Deluxe",
+	// "GOTY"), with or without "Edition"; failing that, a named edition after
+	// the last " - " or ":" ("Tales of ARISE - Beyond the Dawn Edition").
+	// Returns the title unchanged when it has none.
+	function withoutEditionWords(title) {
+		const words = title.replace(/(\s*[:\-–—]?\s*\b(digital|deluxe|definitive|ultimate|complete|special|enhanced|anniversary|gold|premium|standard|collector'?s|director'?s cut|game of the year|goty)\b)+(\s+edition)?\s*$/i, "").trim();
+		if (words && words !== title.trim()) return words;
+		return title.replace(/(\s*:\s+|\s+[-–—]\s+)[^:\-–—]*\bedition\s*$/i, "").trim() || title;
+	}
 
 	// candidates: [{appid, title}] from one Steam search. Returns an appid or 0.
 	function pickSteamMatch(title, candidates) {
@@ -939,9 +956,11 @@ Copyright 2026, SentaiBrad
 		}
 
 		// Package fallback: compilations and editions sold as Steam packages.
-		// Search the part before ":" or " - " ("FEAR"), then check the packages
-		// of games whose name starts the store title.
+		// Search the part before ":" or " - " ("FEAR"), or else the title
+		// without its edition ("NBA 2K27"), then check the packages of games
+		// whose name starts the store title.
 		const base = title.split(/:|\s[-–—]\s/)[0].trim();
+		const plain = withoutEditionWords(title);
 		const wanted = normalizeTitle(spellGreek(title));
 		const games = [];
 		const candidatesSeen = [];
@@ -956,6 +975,12 @@ Copyright 2026, SentaiBrad
 		if (!games.length && base && normalizeTitle(base) !== normalizeTitle(title)) {
 			const more = await searchSteamApps(base);
 			log("package fallback, searched", JSON.stringify(base), "->", more === null ? "ERROR" : more.map((c) => `${c.appid} ${c.title}`));
+			if (more === null) hadError = true;
+			else addGames(more);
+		}
+		if (!games.length && plain !== title && normalizeTitle(plain) !== normalizeTitle(base)) {
+			const more = await searchSteamApps(plain);
+			log("package fallback, searched without the edition", JSON.stringify(plain), "->", more === null ? "ERROR" : more.map((c) => `${c.appid} ${c.title}`));
 			if (more === null) hadError = true;
 			else addGames(more);
 		}
@@ -976,12 +1001,13 @@ Copyright 2026, SentaiBrad
 			const packageid = pickSteamMatch(title, packages);
 			if (packageid) { log("matched package", packageid); return {result: {type: "sub", id: packageid}, cacheable: true}; }
 		}
-		// A store's own edition of a game ("Paradise Killer: Perfect 25 Edition")
-		// that Steam doesn't sell under that name is the game itself, as long as
-		// the name before ":" or " - " is exactly that game's.
-		if (!hadError && /\bedition$/i.test(title.trim())) {
-			const baseKey = normalizeTitle(spellGreek(base));
-			const game = candidatesSeen.find((c) => normalizeTitle(spellGreek(c.title)) === baseKey);
+		// A store's own edition of a game ("Paradise Killer: Perfect 25 Edition",
+		// "NBA 2K27 Deluxe Edition") that Steam doesn't sell under that name is
+		// the game itself, as long as the name before ":" or " - ", or the name
+		// without its edition, is exactly that game's.
+		if (!hadError && (/\bedition$/i.test(title.trim()) || plain !== title)) {
+			const keys = [base, plain].map((name) => normalizeTitle(spellGreek(name)));
+			const game = candidatesSeen.find((c) => keys.includes(normalizeTitle(spellGreek(c.title))));
 			if (game) { log("edition of game", game.appid); return {result: {type: "app", id: game.appid}, cacheable: true}; }
 		}
 		if (hadError) { log("no match, but a request failed: not saved, will be tried again"); throw lookupFailed; }
