@@ -2,10 +2,9 @@
 // @name            Bundle Helper Reborn 3.0
 // @namespace       https://github.com/SentaiBrad/
 // @author          SentaiBrad
-// @version         3.0.53
+// @version         3.0.54
 // @description     Marks the Steam games you own, have wishlisted or ignored on bundle and game store sites (Humble Bundle, Fanatical, Eneba and more), including packs and bundles, with a Steam button on each game.
 // @match           *://dailyindiegame.com/*
-// @match           *://old.reddit.com/*
 // @match           *://sgtools.info/*
 // @match           *://www.sgtools.info/*
 // @match           *://steamgifts.com/*
@@ -2158,16 +2157,6 @@ Copyright 2026, SentaiBrad
 			}
 			retryUntilTilesAppear();
 			watchAllForChanges("body", processItchTiles, 2000);
-		},
-		"reddit.com": function() {
-			// Steam store and community links in posts and comments (old.reddit.com).
-			document.body.classList.add("bh_basic_style");
-			watchAllForChanges(".content", function() {
-				markElements({
-					itemSelector: "a[href*='store.steampowered.com/'], a[href*='steamcommunity.com/']",
-					itemStringExtractor: (a) => a.href,
-				});
-			});
 		},
 		"sgtools.info": function() {
 			// Tables with Steam links, and deals with Steam images.

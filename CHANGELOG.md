@@ -1,5 +1,9 @@
 # Changelog
 
+## 3.0.54
+
+- **Reddit support is dropped.** The script never actually ran on old.reddit.com, and it won't be fixed. The script no longer asks to run there at all.
+
 ## 3.0.53
 
 - **A lookup that failed is tried again, and no longer shown as "no match".** When Steam didn't answer (a network problem, a timeout, or the one-minute pause after "too many requests"), the game stayed unmarked until you reloaded the page, and the Items tab listed it as "no match". Now it's listed as "lookup failed (Steam didn't answer)" and looked up again about 15 seconds later, or just after the pause ends, up to 3 times. This covers Humble, Eneba, itch.io and Fanatical products looked up by name. The debug report counts the retries.
