@@ -2,7 +2,7 @@
 // @name            Bundle Helper Reborn 3.0
 // @namespace       https://github.com/SentaiBrad/
 // @author          SentaiBrad
-// @version         3.0.57
+// @version         3.0.58
 // @description     Marks the Steam games you own, have wishlisted or ignored on bundle and game store sites (Humble Bundle, Fanatical, Eneba and more), including packs and bundles, with a Steam button on each game.
 // @match           *://dailyindiegame.com/*
 // @match           *://sgtools.info/*
@@ -1524,7 +1524,25 @@ Copyright 2026, SentaiBrad
 		}
 	}
 
+	// Products in Fanatical's search answers (the deals page, carousels,
+	// recommendations), by cover file name: {name, type}. These answers have
+	// no Steam IDs, so such cards are looked up on Steam by name.
+	const fanaticalListedProducts = new Map();
+
+	function rememberListedProducts(data, depth = 0) {
+		if (!data || typeof data !== "object" || depth > 4) return;
+		for (const item of Array.isArray(data) ? data : Object.values(data)) {
+			if (item?.cover && item.name && item.slug && !item.steam) {
+				fanaticalListedProducts.set(item.cover, {name: item.name, type: item.type});
+			} else {
+				rememberListedProducts(item, depth + 1);
+			}
+		}
+	}
+
 	function rememberFanaticalData(jsonData) {
+		rememberListedProducts(jsonData);
+
 		// Page: https://www.fanatical.com/en/bundle/batman-arkham-collection
 		// AJAX: https://www.fanatical.com/api/products-group/batman-arkham-collection/en
 		for (const bundle of jsonData.bundles ?? []) {
@@ -1897,7 +1915,8 @@ Copyright 2026, SentaiBrad
 				(cover ?? card).insertAdjacentElement("beforeend", link);
 			}
 
-			const cardSelector = ".bundle-game-card, .bundle-product-card, .card, .HitCard, .header-content-container, .NewPickAndMixCard, .PickAndMixCard, .ProductHeader.container";
+			const cardSelector = ".bundle-game-card, .bundle-product-card, .card, .HitCard, .CarouselCard, .header-content-container, .NewPickAndMixCard, .PickAndMixCard, .ProductHeader.container";
+			const bundleLinkSelector = "a[href*='/bundle/'], a[href*='/pick-and-mix/']";
 
 			// The Steam ID can be used as given: there is one, and it isn't a
 			// package ID that needs checking on Steam.
@@ -1914,7 +1933,7 @@ Copyright 2026, SentaiBrad
 					const card = img.closest(cardSelector);
 					if (!card || card.classList.contains("bh_already_processed")) continue;
 					// Whole bundles (cards linking to a bundle page) aren't products.
-					if (card.querySelector("a.HitCard__main__cover[href*='/bundle/'], a.HitCard__main__cover[href*='/pick-and-mix/']")) continue;
+					if (card.querySelector(bundleLinkSelector)) continue;
 					card.classList.add("bh_already_processed");
 					const source = product.steam?.id
 						? "Fanatical's package ID, checked on Steam"
@@ -1925,6 +1944,32 @@ Copyright 2026, SentaiBrad
 						makeCard(card);
 						markMatch(card, match, (link) => placeSteamLink(card, link));
 					}).catch(onLookupError(card, product.name, source));
+				}
+			}
+
+			// Cards with no Steam data at all, on pages that aren't one bundle,
+			// pick-and-mix or game (the deals page, store listings): Fanatical
+			// fills these from its search answers, which have no Steam IDs, so
+			// they're looked up on Steam by name. The name comes from those
+			// answers, or else from the cover's "Product cover for …" text.
+			// Waiting for the hook's 2 seconds keeps product data that's still
+			// on its way from being overtaken by a name lookup.
+			function markListedProducts() {
+				if (pageDataUrl() || !hookHadItsChance) return;
+				for (const img of document.querySelectorAll("main img.img-full[srcset]")) {
+					const cover = filenameFromURL(img.src);
+					if (fanaticalCoverMap.has(cover)) continue;
+					const card = img.closest(cardSelector);
+					if (!card || card.classList.contains("bh_already_processed") || card.querySelector(bundleLinkSelector)) continue;
+					const listed = fanaticalListedProducts.get(cover);
+					if (listed && listed.type !== "game" && listed.type !== "dlc") continue;
+					const name = listed?.name ?? (img.alt.startsWith("Product cover for ") ? img.alt.slice("Product cover for ".length).trim() : "");
+					if (!name) continue;
+					card.classList.add("bh_already_processed");
+					lookUpAndMark(card, name, "Fanatical listing without Steam data, name looked up on Steam", (match) => {
+						makeCard(card);
+						markMatch(card, match, (link) => placeSteamLink(card, link));
+					});
 				}
 			}
 
@@ -1946,6 +1991,7 @@ Copyright 2026, SentaiBrad
 					},
 				});
 				markProductsNeedingLookup();
+				markListedProducts();
 				requestMissedPageData().catch(logFailure("Fanatical data fallback"));
 			}
 			const rescanSoon = throttle(guard("page scan", scanPage), 500);
@@ -2872,7 +2918,8 @@ Copyright 2026, SentaiBrad
 			for (const [rule, found] of ruleCounts) value(`Found by ${rule}`, found);
 			if (debugState.site_handler === "fanatical.com") {
 				value("Fanatical fetch hook", debugState.fetch_hook);
-				value("Fanatical covers with Steam data", `${fanaticalCoverMap.size}${fanaticalCoverMap.size ? "" : " (0 after the page loaded means the hook isn't seeing Fanatical's data)"}`);
+				value("Fanatical covers with Steam data", `${fanaticalCoverMap.size}${fanaticalCoverMap.size || fanaticalListedProducts.size ? "" : " (0 after the page loaded means the hook isn't seeing Fanatical's data)"}`);
+				value("Fanatical listed products (no Steam data, matched by name)", fanaticalListedProducts.size);
 				value("Fanatical data fallback", debugState.fanatical_data_fallback);
 			}
 			value("Errors this page", debugLog.count("error"));

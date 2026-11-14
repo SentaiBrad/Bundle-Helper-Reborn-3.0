@@ -1,5 +1,11 @@
 # Changelog
 
+## 3.0.58
+
+- **Fanatical's deals page and store listings are marked.** Fanatical fills these pages from its search data, which has each product's name but no Steam ID, so nothing was marked there. Games on those pages are now looked up on Steam by name, like on Humble and Eneba; bundles in the listings are left alone. Bundle, pick-and-mix and game pages still use Fanatical's exact Steam IDs.
+- **More Fanatical cards are found:** the carousel cards on the deals and home pages are recognized as cards.
+- **Debug report:** a new line counts the Fanatical products seen without Steam data.
+
 ## 3.0.57
 
 - **Fanatical: no extra data request after moving to another page.** When Fanatical changes pages without reloading, the script could ask for the new page's product data itself before Fanatical's own request had arrived, so the data was fetched twice. Now it waits 2 seconds on every new page, as it does on the first one, before asking.
