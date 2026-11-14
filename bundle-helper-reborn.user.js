@@ -2,7 +2,7 @@
 // @name            Bundle Helper Reborn 3.0
 // @namespace       https://github.com/SentaiBrad/
 // @author          SentaiBrad
-// @version         3.0.54
+// @version         3.0.55
 // @description     Marks the Steam games you own, have wishlisted or ignored on bundle and game store sites (Humble Bundle, Fanatical, Eneba and more), including packs and bundles, with a Steam button on each game.
 // @match           *://dailyindiegame.com/*
 // @match           *://sgtools.info/*
@@ -237,17 +237,6 @@ Copyright 2026, SentaiBrad
 	// Logs failures of a lookup-and-mark chain instead of losing them.
 	function logFailure(where) {
 		return (error) => recordError(where, error);
-	}
-
-	// Text sitting directly inside an element, ignoring text in its child
-	// elements. Humble puts extra labels inside the title element, which this
-	// skips.
-	function ownText(element) {
-		const parts = [];
-		for (const node of element.childNodes) {
-			if (node.nodeType === Node.TEXT_NODE) parts.push(node.textContent.trim());
-		}
-		return parts.join("").trim();
 	}
 
 	//////////////////////////////////////////////////
@@ -2115,47 +2104,34 @@ Copyright 2026, SentaiBrad
 			});
 		},
 		"itch.io": function() {
-			// Browse pages: game cells matched by title.
+			// Browse pages: game cells matched by title. The title is the link in
+			// .game_title, next to the price tag. Some titles start with an
+			// invisible zero-width space, which would end up in the Steam search.
 			document.body.classList.add("bh_basic_style");
 			GM_addStyle(`
-				.bh_basic_style .index_game_cell_widget.bh_owned   { outline: 3px solid var(--bh-color); outline-offset: -3px; }
-				.bh_basic_style .index_game_cell_widget.bh_wished  { outline: 3px solid var(--bh-color); outline-offset: -3px; }
-				.bh_basic_style .index_game_cell_widget.bh_ignored { outline: 3px solid var(--bh-color); outline-offset: -3px; }
+				.bh_basic_style .game_cell.bh_owned   { outline: 3px solid var(--bh-color); outline-offset: -3px; }
+				.bh_basic_style .game_cell.bh_wished  { outline: 3px solid var(--bh-color); outline-offset: -3px; }
+				.bh_basic_style .game_cell.bh_ignored { outline: 3px solid var(--bh-color); outline-offset: -3px; }
+				.game_cell .game_thumb > .bh_steamlink {
+					position: absolute;
+					bottom: 4px;
+					right: 4px;
+					z-index: 10;
+				}
 			`);
 
 			function processItchTiles() {
-				noteRule("itch.io tiles (.game_cell)", document.querySelectorAll(".index_game_cell_widget.game_cell").length);
-				const tiles = document.querySelectorAll(".index_game_cell_widget.game_cell:not(.bh_already_processed)");
-				for (const tile of tiles) {
+				noteRule("itch.io tiles (.game_cell)", document.querySelectorAll(".game_cell").length);
+				for (const tile of document.querySelectorAll(".game_cell:not(.bh_already_processed)")) {
+					const title = tile.querySelector(".game_title > a.title")?.textContent.replace(/[​-‍﻿]/g, "").trim();
+					if (!title) continue;
 					tile.classList.add("bh_already_processed");
-					const titleElem = tile.querySelector(".game_title, .title");
-					if (!titleElem) continue;
-					const title = ownText(titleElem);
-					if (!title) debugLog.add("error", `itch.io tile title came out empty; tile text is ${JSON.stringify(titleElem.textContent.trim().slice(0, 80))}`);
 					lookUpAndMark(tile, title, "itch.io title, looked up on Steam", (match) => {
-						markMatch(tile, match, (link) => {
-							const thumb = tile.querySelector("a.game_thumb");
-							if (!thumb) return;
-							link.style.position = "absolute";
-							link.style.bottom = "4px";
-							link.style.right = "4px";
-							link.style.zIndex = "10";
-							thumb.appendChild(link);
-						});
+						markMatch(tile, match, (link) => tile.querySelector(".game_thumb")?.appendChild(link));
 					});
 				}
 			}
 
-			// Tiles can load after the script starts: check once a second for up to
-			// 10 seconds until some appear.
-			let retries = 0;
-			function retryUntilTilesAppear() {
-				processItchTiles();
-				if (document.querySelectorAll(".index_game_cell_widget.game_cell").length === 0 && retries++ < 10) {
-					setTimeout(guard("itch.io tiles", retryUntilTilesAppear), 1000);
-				}
-			}
-			retryUntilTilesAppear();
 			watchAllForChanges("body", processItchTiles, 2000);
 		},
 		"sgtools.info": function() {

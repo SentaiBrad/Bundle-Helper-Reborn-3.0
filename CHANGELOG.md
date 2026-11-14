@@ -1,5 +1,9 @@
 # Changelog
 
+## 3.0.55
+
+- **itch.io works.** Nothing was ever marked there: the script looked for game cells under a name itch.io no longer uses, and read the title from the wrong place. Browse pages (such as Top rated) are now marked, with a Steam button on each game's thumbnail. Creator pages (`name.itch.io`) are still not covered.
+
 ## 3.0.54
 
 - **Reddit support is dropped.** The script never actually ran on old.reddit.com, and it won't be fixed. The script no longer asks to run there at all.
