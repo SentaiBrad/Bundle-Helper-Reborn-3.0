@@ -1,5 +1,9 @@
 # Changelog
 
+## 3.0.50
+
+- **The panel stays on Humble.** Since Humble rebuilt its site, the panel could appear and then vanish: Humble draws its page again after loading and removes everything it didn't make, the panel included. The panel is now put back whenever a site removes it, on every site. The debug report counts how often that happened.
+
 ## 3.0.49
 
 - **Humble Choice games are marked.** On the member page, this month's games are marked owned, wishlisted or ignored, with a Steam button. A title that adds its DLC ("Mafia: The Old Country + 2 DLC Packs") is matched as the game, and offers that aren't games ("IGN Plus Subscription") are skipped.

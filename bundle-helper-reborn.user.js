@@ -2,7 +2,7 @@
 // @name            Bundle Helper Reborn 3.0
 // @namespace       https://github.com/SentaiBrad/
 // @author          SentaiBrad
-// @version         3.0.49
+// @version         3.0.50
 // @description     Marks the Steam games you own, have wishlisted or ignored on bundle and game store sites (Humble Bundle, Fanatical, Eneba and more), including packs and bundles, with a Steam button on each game.
 // @match           *://dailyindiegame.com/*
 // @match           *://old.reddit.com/*
@@ -320,6 +320,7 @@ Copyright 2026, SentaiBrad
 		first_mark_ms: null,
 		fetch_hook: "not used on this site",
 		fanatical_data_fallback: "not needed",
+		panel_put_back: 0,
 	};
 
 	// Call whenever an item gets marked; records how long the first one took.
@@ -2821,6 +2822,7 @@ Copyright 2026, SentaiBrad
 			value("Steam buttons", count(".bh_steamlink"));
 			value("Processed elements", count(".bh_already_processed"));
 			value("Page watchers", activeMutationObservers.length);
+		value("Panel put back after the site removed it", debugState.panel_put_back);
 			value("Page scans", `${scanStats.count}, slowest ${scanStats.slowest_ms} ms, average ${scanStats.count ? Math.round(scanStats.total_ms / scanStats.count) : 0} ms`);
 			const duplicates = [...document.querySelectorAll(".bh_already_processed")].filter((el) => el.querySelectorAll(".bh_steamlink").length > 1).length;
 			value("Items with more than one Steam button", duplicates);
@@ -2868,8 +2870,7 @@ Copyright 2026, SentaiBrad
 		return lines.join("\n");
 	}
 
-	function addBundleHelperUI() {
-		thePanel = createPanel();
+	function showPanel() {
 		document.body.appendChild(thePanel.host);
 		// Other add-ons put their own bars along the bottom of the page. The
 		// browser's top layer keeps the panel above them; browsers without
@@ -2878,6 +2879,23 @@ Copyright 2026, SentaiBrad
 			thePanel.host.popover = "manual";
 			thePanel.host.showPopover();
 		}
+	}
+
+	function addBundleHelperUI() {
+		thePanel = createPanel();
+		showPanel();
+		// A site that draws its whole page again after loading (Humble does)
+		// removes the panel along with everything else it didn't make, so the
+		// panel is put back. Only the children of <html> and <body> are
+		// watched, which is where the panel, or a new <body>, goes missing.
+		const watcher = new MutationObserver(guard("panel put back", () => {
+			if (thePanel.host.isConnected || !document.body) return;
+			debugState.panel_put_back++;
+			showPanel();
+			watcher.observe(document.body, {childList: true});
+		}));
+		watcher.observe(document.documentElement, {childList: true});
+		watcher.observe(document.body, {childList: true});
 		return thePanel;
 	}
 
