@@ -1,5 +1,9 @@
 # Changelog
 
+## 3.0.49
+
+- **Humble Choice games are marked.** On the member page, this month's games are marked owned, wishlisted or ignored, with a Steam button. A title that adds its DLC ("Mafia: The Old Country + 2 DLC Packs") is matched as the game, and offers that aren't games ("IGN Plus Subscription") are skipped.
+
 ## 3.0.48
 
 - **Humble bundle pages are marked again.** Humble rebuilt its site in November 2026, and the script found no games on bundle pages any more. Games are found on the new pages, by the name on each cover. The frame and label are on the cover, Humble's own badges (such as the rating) stay on top of the label, and the Steam button doesn't also open Humble's game details.

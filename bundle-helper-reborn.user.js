@@ -2,7 +2,7 @@
 // @name            Bundle Helper Reborn 3.0
 // @namespace       https://github.com/SentaiBrad/
 // @author          SentaiBrad
-// @version         3.0.48
+// @version         3.0.49
 // @description     Marks the Steam games you own, have wishlisted or ignored on bundle and game store sites (Humble Bundle, Fanatical, Eneba and more), including packs and bundles, with a Steam button on each game.
 // @match           *://dailyindiegame.com/*
 // @match           *://old.reddit.com/*
@@ -1913,16 +1913,19 @@ Copyright 2026, SentaiBrad
 			, 1000);
 		},
 		"humblebundle.com": function() {
-			// Bundle pages: cards matched by title.
+			// Bundle pages and the Humble Choice member page: cards matched by title.
 			document.body.classList.add("bh_basic_style");
 			GM_addStyle(`
 				/* Humble: frame and label on the image (.bh_card), not the whole card. */
 				.bh_basic_style [data-testid="bundle-item-card"].bh_owned,
 				.bh_basic_style [data-testid="bundle-item-card"].bh_wished,
-				.bh_basic_style [data-testid="bundle-item-card"].bh_ignored {
+				.bh_basic_style [data-testid="bundle-item-card"].bh_ignored,
+				.bh_basic_style [data-testid="product-card"].bh_owned,
+				.bh_basic_style [data-testid="product-card"].bh_wished,
+				.bh_basic_style [data-testid="product-card"].bh_ignored {
 					outline: none !important;
 				}
-				[data-testid="bundle-item-card"] [data-testid="product-thumbnail"] .bh_steamlink {
+				[data-testid="product-thumbnail"] .bh_steamlink {
 					position: absolute;
 					bottom: 4px;
 					right: 4px;
@@ -1949,8 +1952,41 @@ Copyright 2026, SentaiBrad
 				}
 			}
 
-			processBundleCards();
-			watchAllForChanges("body", processBundleCards, 2000);
+			// Choice titles can add the DLC that comes with the game ("Mafia: The
+			// Old Country + 2 DLC Packs"); the game is what's looked up. Offers
+			// that aren't games ("IGN Plus Subscription", "Get One Month of IGN
+			// Plus") are skipped.
+			function choiceGameName(title) {
+				if (/\bmonths? of\b|\bsubscription$/i.test(title)) return "";
+				return title.replace(/\s*\+\s*\d+\s+(dlc|dlcs|add-ons?|bonus)\b.*$/i, "").trim();
+			}
+
+			// This month's Choice games on the member page. Their covers have no
+			// alt text, so the name is the title, the first part of the card's
+			// footer. Like bundle cards, each sits inside a button that opens
+			// Humble's game details.
+			function processChoiceCards() {
+				noteRule("Humble Choice cards ([data-testid=product-card])", document.querySelectorAll('[data-testid="product-card"]').length);
+				for (const card of document.querySelectorAll('[data-testid="product-card"]:not(.bh_already_processed)')) {
+					const thumbnail = card.querySelector('[data-testid="product-thumbnail"]');
+					const title = card.querySelector('[data-testid="product-card-footer"]')?.firstElementChild?.textContent.trim();
+					if (!thumbnail || !title) continue;
+					card.classList.add("bh_already_processed");
+					const name = choiceGameName(title);
+					if (!name) continue;
+					lookUpAndMark(name, "Humble Choice card, looked up on Steam", (match) => {
+						makeCard(thumbnail);
+						markMatch(card, match, (link) => thumbnail.appendChild(link));
+					});
+				}
+			}
+
+			const processPage = () => {
+				processBundleCards();
+				processChoiceCards();
+			};
+			processPage();
+			watchAllForChanges("body", processPage, 2000);
 		},
 		"indiegala.com": function() {
 			// Store, bundle and search pages: Steam app IDs in data-prod-id, and bundle images.
