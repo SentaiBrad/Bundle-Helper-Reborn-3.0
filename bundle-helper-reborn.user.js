@@ -2,7 +2,7 @@
 // @name            Bundle Helper Reborn 3.0
 // @namespace       https://github.com/SentaiBrad/
 // @author          SentaiBrad
-// @version         3.0.58
+// @version         3.0.59
 // @description     Marks the Steam games you own, have wishlisted or ignored on bundle and game store sites (Humble Bundle, Fanatical, Eneba and more), including packs and bundles, with a Steam button on each game.
 // @match           *://dailyindiegame.com/*
 // @match           *://sgtools.info/*
@@ -1835,6 +1835,21 @@ Copyright 2026, SentaiBrad
 					left: calc( 50% - var(--bh-steamlink-size) / 2 );
 					z-index: 7 !important;
 				}
+				/* Carousel cards: frame, label and button on the cover (the card
+				   can be taller than what shows; see cardFrame), so no outline on
+				   the card itself. */
+				.CarouselCard .CarouselCard__coverContainer > .bh_steamlink {
+					left: auto;
+					right: 4px;
+					bottom: 4px;
+					line-height: 0;
+				}
+				.bh_basic_style .CarouselCard.bh_owned,
+				.bh_basic_style .CarouselCard.bh_wished,
+				.bh_basic_style .CarouselCard.bh_ignored,
+				.bh_basic_style .CarouselCard.bh_partial {
+					outline: none !important;
+				}
 				.ProductHeader.container .bh_steamlink {
 					position: static !important;
 				}
@@ -1910,8 +1925,16 @@ Copyright 2026, SentaiBrad
 			// watched; scans run at most every 2 seconds.
 			// On the cover image when the card has one; product page headers keep
 			// the button inline.
+			// Where a card's frame and label go: the card, except carousel cards
+			// (deals and home page). Those can be taller than what shows, with
+			// their details hidden until hover, so a frame on the card hung below
+			// it; they get it on their cover box instead, with the button.
+			function cardFrame(card) {
+				return card.querySelector(".CarouselCard__coverContainer") ?? card;
+			}
+
 			function placeSteamLink(card, link) {
-				const cover = card.matches(".ProductHeader.container") ? null : card.querySelector(".cover-container");
+				const cover = card.matches(".ProductHeader.container") ? null : card.querySelector(".cover-container, .CarouselCard__coverContainer");
 				(cover ?? card).insertAdjacentElement("beforeend", link);
 			}
 
@@ -1941,7 +1964,7 @@ Copyright 2026, SentaiBrad
 					resolveProduct(fanaticalProduct(product)).then((match) => {
 						recordItem(product.name, source, match);
 						if (!match) return;
-						makeCard(card);
+						makeCard(cardFrame(card));
 						markMatch(card, match, (link) => placeSteamLink(card, link));
 					}).catch(onLookupError(card, product.name, source));
 				}
@@ -1967,7 +1990,7 @@ Copyright 2026, SentaiBrad
 					if (!name) continue;
 					card.classList.add("bh_already_processed");
 					lookUpAndMark(card, name, "Fanatical listing without Steam data, name looked up on Steam", (match) => {
-						makeCard(card);
+						makeCard(cardFrame(card));
 						markMatch(card, match, (link) => placeSteamLink(card, link));
 					});
 				}
@@ -1986,7 +2009,7 @@ Copyright 2026, SentaiBrad
 					},
 					closestSelector: cardSelector,
 					addSteamLinkFunc: (item, closest, link) => {
-						makeCard(closest);
+						makeCard(cardFrame(closest));
 						placeSteamLink(closest, link);
 					},
 				});

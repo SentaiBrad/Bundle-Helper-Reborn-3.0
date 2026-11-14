@@ -1,5 +1,9 @@
 # Changelog
 
+## 3.0.59
+
+- **Fanatical carousel cards: the Steam button sits on the cover.** On the deals page's carousels the button sat below the card and didn't move with it on hover, because the card is taller than what shows (its details are hidden until hover). The button now sits bottom-right on the cover, and the frame and label go on the cover too, so nothing hangs below the card.
+
 ## 3.0.58
 
 - **Fanatical's deals page and store listings are marked.** Fanatical fills these pages from its search data, which has each product's name but no Steam ID, so nothing was marked there. Games on those pages are now looked up on Steam by name, like on Humble and Eneba; bundles in the listings are left alone. Bundle, pick-and-mix and game pages still use Fanatical's exact Steam IDs.
