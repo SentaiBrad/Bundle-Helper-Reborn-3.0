@@ -1,5 +1,10 @@
 # Changelog
 
+## 3.0.60
+
+- **Fanatical: the Steam button sits bottom-right on the cover on every card.** The grid, flash-deal and other listing cards had it in the price bar at the bottom of the card. Checked on the deals, home, top sellers, search, bundle and pick-and-mix pages. Game pages keep it next to the title.
+- **Fanatical's top sellers and store search are marked.** Those pages are built differently, and the script didn't look at them at all.
+
 ## 3.0.59
 
 - **Fanatical carousel cards: the Steam button sits on the cover.** On the deals page's carousels the button sat below the card and didn't move with it on hover, because the card is taller than what shows (its details are hidden until hover). The button now sits bottom-right on the cover, and the frame and label go on the cover too, so nothing hangs below the card.

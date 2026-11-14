@@ -2,7 +2,7 @@
 // @name            Bundle Helper Reborn 3.0
 // @namespace       https://github.com/SentaiBrad/
 // @author          SentaiBrad
-// @version         3.0.59
+// @version         3.0.60
 // @description     Marks the Steam games you own, have wishlisted or ignored on bundle and game store sites (Humble Bundle, Fanatical, Eneba and more), including packs and bundles, with a Steam button on each game.
 // @match           *://dailyindiegame.com/*
 // @match           *://sgtools.info/*
@@ -1815,35 +1815,31 @@ Copyright 2026, SentaiBrad
 			watchAllForChanges("body", processEneba, 1000);
 		},
 		"fanatical.com": function() {
-			// Bundle, pick-and-mix and game pages: Steam IDs from Fanatical's own product data.
+			// Bundle, pick-and-mix and game pages: Steam IDs from Fanatical's own product data. Deals, home and listing pages: names looked up on Steam.
 			document.body.classList.add("bh_basic_style");
 			GM_addStyle(`
 				/* Steam button: bottom-right of the cover image. The !important
 				   rules beat Fanatical's ".faux-block-link a { position: relative }",
 				   which would put the button back in the card's flow and make
 				   marked cards taller than unmarked ones. */
-				.cover-container > .bh_steamlink {
+				.cover-container > .bh_steamlink,
+				.product-cover-container > .bh_steamlink {
 					position: absolute !important;
 					right: 4px;
 					bottom: 4px;
 					z-index: 7 !important;
 					line-height: 0;
 				}
+				/* A card with no cover box found. */
 				.bh_card > .bh_steamlink {
 					position: absolute !important;
 					bottom: 0;
 					left: calc( 50% - var(--bh-steamlink-size) / 2 );
 					z-index: 7 !important;
 				}
-				/* Carousel cards: frame, label and button on the cover (the card
-				   can be taller than what shows; see cardFrame), so no outline on
-				   the card itself. */
-				.CarouselCard .CarouselCard__coverContainer > .bh_steamlink {
-					left: auto;
-					right: 4px;
-					bottom: 4px;
-					line-height: 0;
-				}
+				/* Carousel cards: frame and label on the cover (the card can be
+				   taller than what shows; see cardFrame), so no outline on the card
+				   itself. */
 				.bh_basic_style .CarouselCard.bh_owned,
 				.bh_basic_style .CarouselCard.bh_wished,
 				.bh_basic_style .CarouselCard.bh_ignored,
@@ -1854,6 +1850,10 @@ Copyright 2026, SentaiBrad
 					position: static !important;
 				}
 			`);
+
+			// The page's content, without the top bar and its menus. Listing pages
+			// (top sellers, search) have no <main>; elsewhere <main> is inside it.
+			const fanaticalContent = ".content";
 
 			// The data hook (installFanaticalDataHook) has been running since the
 			// script started; from now on, data it sees also rescans the page.
@@ -1901,7 +1901,7 @@ Copyright 2026, SentaiBrad
 				if (!hookHadItsChance) return;
 				const url = pageDataUrl();
 				if (!url || fallbackRequested.has(url)) return;
-				const covers = [...document.querySelectorAll("main img.img-full[srcset]")].filter((img) => img.closest(productCardSelector));
+				const covers = [...document.querySelectorAll(`${fanaticalContent} img.img-full[srcset]`)].filter((img) => img.closest(productCardSelector));
 				if (!covers.length || covers.some((img) => fanaticalCoverMap.has(filenameFromURL(img.src)))) return;
 
 				fallbackRequested.add(url);
@@ -1921,21 +1921,22 @@ Copyright 2026, SentaiBrad
 				rescanSoon();
 			}
 
-			// Fanatical rewrites its page all the time, so the whole body is
-			// watched; scans run at most every 2 seconds.
-			// On the cover image when the card has one; product page headers keep
-			// the button inline.
 			// Where a card's frame and label go: the card, except carousel cards
 			// (deals and home page). Those can be taller than what shows, with
 			// their details hidden until hover, so a frame on the card hung below
-			// it; they get it on their cover box instead, with the button.
+			// it; they get it on their cover box instead.
 			function cardFrame(card) {
 				return card.querySelector(".CarouselCard__coverContainer") ?? card;
 			}
 
+			// The Steam button goes bottom-right on the cover image, on every kind
+			// of card: .cover-container on bundle pages, and the
+			// .product-cover-container around the image on listing cards (grid,
+			// flash deals, carousels). Product page headers keep it inline.
 			function placeSteamLink(card, link) {
-				const cover = card.matches(".ProductHeader.container") ? null : card.querySelector(".cover-container, .CarouselCard__coverContainer");
-				(cover ?? card).insertAdjacentElement("beforeend", link);
+				const cover = card.matches(".ProductHeader.container") ? null : card.querySelector(".cover-container") ?? card.querySelector(".product-cover-container");
+				if (cover && getComputedStyle(cover).position === "static") cover.style.position = "relative";
+				(cover ?? card).append(link);
 			}
 
 			const cardSelector = ".bundle-game-card, .bundle-product-card, .card, .HitCard, .CarouselCard, .header-content-container, .NewPickAndMixCard, .PickAndMixCard, .ProductHeader.container";
@@ -1950,7 +1951,7 @@ Copyright 2026, SentaiBrad
 			// Products without a usable Steam ID: collections and 2-in-1s with no
 			// ID of their own, and package IDs that need checking on Steam.
 			function markProductsNeedingLookup() {
-				for (const img of document.querySelectorAll("main img.img-full[srcset]")) {
+				for (const img of document.querySelectorAll(`${fanaticalContent} img.img-full[srcset]`)) {
 					const product = fanaticalCoverMap.get(filenameFromURL(img.src));
 					if (!product || usableSteamId(product)) continue;
 					const card = img.closest(cardSelector);
@@ -1979,7 +1980,7 @@ Copyright 2026, SentaiBrad
 			// on its way from being overtaken by a name lookup.
 			function markListedProducts() {
 				if (pageDataUrl() || !hookHadItsChance) return;
-				for (const img of document.querySelectorAll("main img.img-full[srcset]")) {
+				for (const img of document.querySelectorAll(`${fanaticalContent} img.img-full[srcset]`)) {
 					const cover = filenameFromURL(img.src);
 					if (fanaticalCoverMap.has(cover)) continue;
 					const card = img.closest(cardSelector);
@@ -1998,7 +1999,7 @@ Copyright 2026, SentaiBrad
 
 			function scanPage() {
 				markElements({
-					rootSelector: "main",
+					rootSelector: fanaticalContent,
 					itemSelector: "img.img-full[srcset]",
 					itemStringExtractor: (img) => {
 						const product = fanaticalCoverMap.get(filenameFromURL(img.src));
@@ -2019,6 +2020,8 @@ Copyright 2026, SentaiBrad
 			}
 			const rescanSoon = throttle(guard("page scan", scanPage), 500);
 
+			// Fanatical rewrites its page all the time, so the whole body is
+			// watched; scans run at most every 2 seconds.
 			watchAllForChanges("body", scanPage, 2000);
 
 			// We don't even try matching the dropdown results from the top bar.

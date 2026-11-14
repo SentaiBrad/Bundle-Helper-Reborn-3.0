@@ -41,7 +41,7 @@ Updates are picked up automatically from this repository.
 | Site | How games are recognized | Status |
 |---|---|---|
 | Humble Bundle | Game title, looked up on Steam | Working on bundle pages and the Humble Choice member page (this month's games) |
-| Fanatical | Fanatical's own product data, which includes Steam IDs; title lookup for products without one | Working |
+| Fanatical | Fanatical's own product data, which includes Steam IDs, on bundle, pick-and-mix and game pages; game title, looked up on Steam, on the deals page, home page and store listings | Working |
 | Eneba | Game title, looked up on Steam (keys for any launcher or console, checked against your Steam library) | Working on store listings; product pages not yet checked |
 | itch.io | Game title, looked up on Steam | Working on browse pages. `itch.io` only, not creator pages (`name.itch.io`). |
 | AStats, DailyIndieGame, IndieGala, SGTools, SteamGifts, SteamGround | Steam links, images or IDs on the page | Carried over from 2.x, not yet checked in 3.0 |
