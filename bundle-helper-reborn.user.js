@@ -2,7 +2,7 @@
 // @name            Bundle Helper Reborn 3.0
 // @namespace       https://github.com/SentaiBrad/
 // @author          SentaiBrad
-// @version         3.0.55
+// @version         3.0.56
 // @description     Marks the Steam games you own, have wishlisted or ignored on bundle and game store sites (Humble Bundle, Fanatical, Eneba and more), including packs and bundles, with a Steam button on each game.
 // @match           *://dailyindiegame.com/*
 // @match           *://sgtools.info/*
@@ -31,6 +31,7 @@
 // @match           *://www.g2a.com/*
 // @match           *://eneba.com/*
 // @match           *://www.eneba.com/*
+// @run-at          document-start
 // @grant           GM_addStyle
 // @grant           GM_getValue
 // @grant           GM_openInTab
@@ -1523,6 +1524,69 @@ Copyright 2026, SentaiBrad
 		}
 	}
 
+	function rememberFanaticalData(jsonData) {
+		// Page: https://www.fanatical.com/en/bundle/batman-arkham-collection
+		// AJAX: https://www.fanatical.com/api/products-group/batman-arkham-collection/en
+		for (const bundle of jsonData.bundles ?? []) {
+			for (const game of bundle.games ?? []) {
+				rememberFanaticalProduct(game);
+			}
+		}
+
+		// Page: https://www.fanatical.com/en/pick-and-mix/build-your-own-bento-bundle
+		// AJAX: https://www.fanatical.com/api/pick-and-mix/build-your-own-bento-bundle/en
+		for (const game of jsonData.products ?? []) {
+			rememberFanaticalProduct(game);
+		}
+
+		// Page: https://www.fanatical.com/en/game/the-last-of-us-part-i
+		// AJAX: https://www.fanatical.com/api/products-group/the-last-of-us-part-i/en
+		rememberFanaticalProduct(jsonData);
+	}
+
+	// Set by the Fanatical handler once the page is ready: cards may already
+	// be on the page when their data arrives, so it rescans. Before that, the
+	// data is only remembered, and the handler's first scan uses it.
+	let afterFanaticalData = null;
+
+	// Fanatical's product data, read from the page's own requests. Installed
+	// as soon as the script starts, before the page asks for its data.
+	// Intercepting fetch() requests.
+	// With help from:
+	// * https://blog.logrocket.com/intercepting-javascript-fetch-api-requests-responses/
+	// * https://stackoverflow.com/a/29293383
+	// Using unsafeWindow to access the page's window object:
+	// * https://violentmonkey.github.io/api/metadata-block/#inject-into
+	// The page always gets its response and its answer exactly as they came,
+	// and nothing the script does with them can throw into the page's code:
+	// reading the answer is guarded, and a failed answer is left for the
+	// page to handle, as it would be without the script.
+	function installFanaticalDataHook() {
+		const readFanaticalAnswer = guard("Fanatical data hook", (answer) => {
+			answer.then(guard("Fanatical data hook", (jsonData) => {
+				if (!jsonData) return;
+				rememberFanaticalData(jsonData);
+				afterFanaticalData?.();
+			}), () => {});
+		});
+		const watchFanaticalResponse = guard("Fanatical data hook", (response) => {
+			const originalJson = response.json;
+			if (!originalJson) return;
+			response.json = function(...args) {
+				const answer = originalJson.apply(this, args);
+				readFanaticalAnswer(answer);
+				return answer;
+			};
+		});
+		const originalFetch = unsafeWindow.fetch;
+		debugState.fetch_hook = `installed ${Math.round(performance.now())} ms after the page started loading`;
+		unsafeWindow.fetch = async function(...args) {
+			const response = await originalFetch(...args);
+			watchFanaticalResponse(response);
+			return response;
+		};
+	}
+
 	// A Fanatical product in the shape the shared product code uses (see
 	// "Store products and packs"). Its contents come from its own product data.
 	function fanaticalProduct(data) {
@@ -1758,60 +1822,9 @@ Copyright 2026, SentaiBrad
 				}
 			`);
 
-			function rememberFanaticalData(jsonData) {
-				// Page: https://www.fanatical.com/en/bundle/batman-arkham-collection
-				// AJAX: https://www.fanatical.com/api/products-group/batman-arkham-collection/en
-				for (const bundle of jsonData.bundles ?? []) {
-					for (const game of bundle.games ?? []) {
-						rememberFanaticalProduct(game);
-					}
-				}
-
-				// Page: https://www.fanatical.com/en/pick-and-mix/build-your-own-bento-bundle
-				// AJAX: https://www.fanatical.com/api/pick-and-mix/build-your-own-bento-bundle/en
-				for (const game of jsonData.products ?? []) {
-					rememberFanaticalProduct(game);
-				}
-
-				// Page: https://www.fanatical.com/en/game/the-last-of-us-part-i
-				// AJAX: https://www.fanatical.com/api/products-group/the-last-of-us-part-i/en
-				rememberFanaticalProduct(jsonData);
-			}
-
-			// Intercepting fetch() requests.
-			// With help from:
-			// * https://blog.logrocket.com/intercepting-javascript-fetch-api-requests-responses/
-			// * https://stackoverflow.com/a/29293383
-			// Using unsafeWindow to access the page's window object:
-			// * https://violentmonkey.github.io/api/metadata-block/#inject-into
-			// The page always gets its response and its answer exactly as they came,
-			// and nothing the script does with them can throw into the page's code:
-			// reading the answer is guarded, and a failed answer is left for the
-			// page to handle, as it would be without the script.
-			const readFanaticalAnswer = guard("Fanatical data hook", (answer) => {
-				answer.then(guard("Fanatical data hook", (jsonData) => {
-					if (!jsonData) return;
-					rememberFanaticalData(jsonData);
-					// Cards may already be on the page when their data arrives.
-					rescanSoon();
-				}), () => {});
-			});
-			const watchFanaticalResponse = guard("Fanatical data hook", (response) => {
-				const originalJson = response.json;
-				if (!originalJson) return;
-				response.json = function(...args) {
-					const answer = originalJson.apply(this, args);
-					readFanaticalAnswer(answer);
-					return answer;
-				};
-			});
-			const originalFetch = unsafeWindow.fetch;
-			debugState.fetch_hook = "installed";
-			unsafeWindow.fetch = async function(...args) {
-				const response = await originalFetch(...args);
-				watchFanaticalResponse(response);
-				return response;
-			};
+			// The data hook (installFanaticalDataHook) has been running since the
+			// script started; from now on, data it sees also rescans the page.
+			afterFanaticalData = () => rescanSoon();
 
 			// The hook misses Fanatical's data when the page asked for it before
 			// the script started, for example in a tab opened in the background or
@@ -2921,11 +2934,13 @@ Copyright 2026, SentaiBrad
 	//////////////////////////////////////////////////
 	// Start-up
 
+	// The site's name as siteMapping has it: the hostname without "www.".
+	function siteHostname() {
+		return document.location.hostname.replace(/^www\./, "");
+	}
+
 	function processSite() {
-		let hostname = document.location.hostname;
-		// Removing the www. prefix, if present.
-		hostname = hostname.replace(/^www\./, "");
-		// Calling the site-specific code, if found.
+		const hostname = siteHostname();
 		const handler = siteMapping[hostname];
 		debugState.site_handler = handler ? hostname : "";
 		if (!handler) return;
@@ -3116,6 +3131,10 @@ Copyright 2026, SentaiBrad
 		`);
 	}
 
+	// The script starts as soon as the page does (@run-at document-start),
+	// before the page has a <body>. Styles, settings, the Steam data and
+	// Fanatical's data hook start straight away; the panel and the site's
+	// marking wait until the page's HTML has been read.
 	// Each step runs on its own: if the panel can't be built, the Steam data
 	// is still fetched, marking still runs, and a plain notice offers the
 	// report instead.
@@ -3125,9 +3144,17 @@ Copyright 2026, SentaiBrad
 		guard("start-up: Steam data", () => {
 			refreshSteamDataIfOld().catch(steamRefreshFailed).finally(() => thePanel?.update());
 		})();
-		guard("start-up: panel", addBundleHelperUI)();
-		if (!thePanel?.host.isConnected) guard("start-up: notice", showFallbackNotice)();
-		guard("start-up: site", processSite)();
+		if (siteHostname() === "fanatical.com") guard("start-up: Fanatical data hook", installFanaticalDataHook)();
+		const startPage = () => {
+			guard("start-up: panel", addBundleHelperUI)();
+			if (!thePanel?.host.isConnected) guard("start-up: notice", showFallbackNotice)();
+			guard("start-up: site", processSite)();
+		};
+		if (document.readyState === "loading") {
+			document.addEventListener("DOMContentLoaded", startPage, {once: true});
+		} else {
+			startPage();
+		}
 	}
 
 	main();

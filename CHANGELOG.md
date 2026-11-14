@@ -1,5 +1,10 @@
 # Changelog
 
+## 3.0.56
+
+- **The script starts as soon as a page does.** It used to wait until the page had finished loading, which your userscript manager decides on its own (Tampermonkey and Violentmonkey even differ). Now it starts right away: your Steam data and Fanatical's product data are read from the very start, and the panel and marking follow as soon as the page's content is there. On Fanatical, this should make a background tab or a slow computer miss the page's data less often; the script still asks for it itself when it does.
+- **Debug report:** "Fanatical fetch hook" now says how soon after the page started loading it was installed.
+
 ## 3.0.55
 
 - **itch.io works.** Nothing was ever marked there: the script looked for game cells under a name itch.io no longer uses, and read the title from the wrong place. Browse pages (such as Top rated) are now marked, with a Steam button on each game's thumbnail. Creator pages (`name.itch.io`) are still not covered.

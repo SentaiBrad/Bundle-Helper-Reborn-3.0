@@ -22,7 +22,7 @@ Sources:
 ### Used, and supported by both
 - `@name`, `@namespace`, `@version`, `@description`, `@icon`
 - `@match`: both use Chrome-style match patterns. `*.example.com` also matches `example.com`. Query strings and `#` hashes are never part of the match.
-- `@run-at document-start`: supported by both. See "Things to watch" for what it does and doesn't guarantee.
+- `@run-at document-start`: supported by both, used since 3.0.56. See "Things to watch" for what it does and doesn't guarantee. The page has no `<body>` yet at that point, so the script waits for `DOMContentLoaded` before adding the panel or marking anything.
 - `@grant`: one line per API.
 - `@homepageURL`, `@supportURL`, `@downloadURL`
 
@@ -35,7 +35,7 @@ Sources:
 ### Safe to add later
 - `@noframes`: both. Stops the script running inside same-site iframes.
 - `@exclude-match` (Violentmonkey) and `@exclude` (both): prefer `@exclude` if needed.
-- `@run-at document-end` or `document-idle`: both. Note that the defaults differ: Tampermonkey defaults to `document-idle`, Violentmonkey to `document-end`. Always set `@run-at` explicitly.
+- `@run-at document-end` or `document-idle`: both. Note that the defaults differ: Tampermonkey defaults to `document-idle`, Violentmonkey to `document-end`, which is why `@run-at` is set explicitly.
 
 ### Manager-specific, use with care
 - `@inject-into page` (Violentmonkey only, Tampermonkey ignores it): forces page-context injection in Violentmonkey. The default `auto` falls back to an isolated content script when a site's CSP blocks page scripts. In that context `unsafeWindow` isn't the page's real `window`, so the Fanatical `fetch` hook would silently do nothing.
@@ -80,7 +80,6 @@ Sources:
 ## Known gaps
 
 - `JSON.parse(response.responseText)` is used as a fallback when `response.response` isn't an object (Tampermonkey on Firefox delivers JSON as text). In Violentmonkey `responseText` can be missing; that case is caught and treated as a failed lookup.
-- No `@run-at`, so each manager uses its own default (see "Safe to add later"). The Fanatical data hook can miss Fanatical's first requests.
 - No `@inject-into page`, so in Violentmonkey the Fanatical hook can silently fail on pages whose CSP blocks page scripts.
 - No handling of single-page navigation (see "Things to watch").
 - No `@noframes`.
