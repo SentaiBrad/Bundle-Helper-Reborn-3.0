@@ -2,7 +2,7 @@
 // @name            Bundle Helper Reborn 3.0
 // @namespace       https://github.com/SentaiBrad/
 // @author          SentaiBrad
-// @version         3.0.52
+// @version         3.0.53
 // @description     Marks the Steam games you own, have wishlisted or ignored on bundle and game store sites (Humble Bundle, Fanatical, Eneba and more), including packs and bundles, with a Steam button on each game.
 // @match           *://dailyindiegame.com/*
 // @match           *://old.reddit.com/*
@@ -436,10 +436,21 @@ Copyright 2026, SentaiBrad
 	// data came from, and the lookup result (null when nothing matched).
 	const pageItems = [];
 
-	// The same item seen again (a site redrawing its cards) is listed once.
+	function itemKey(item) {
+		return `${item.name}\n${item.source}\n${item.match ? `${item.match.type} ${item.match.id ?? item.match.members?.length}` : "miss"}`;
+	}
+
+	// The same item seen again (a site redrawing its cards) is listed once. An
+	// item whose lookup failed (match {type: "failed"}) and was tried again is
+	// listed with its latest result.
 	function recordItem(name, source, match) {
 		const item = {name: String(name ?? "").trim().slice(0, 120) || "(no name)", source, match};
-		const key = `${item.name}\n${source}\n${match ? `${match.type} ${match.id ?? match.members?.length}` : "miss"}`;
+		const failedBefore = pageItems.findIndex((other) => other.match?.type === "failed" && other.name === item.name && other.source === source);
+		if (failedBefore !== -1) {
+			recordedItems.delete(itemKey(pageItems[failedBefore]));
+			pageItems.splice(failedBefore, 1);
+		}
+		const key = itemKey(item);
 		if (recordedItems.has(key)) return;
 		recordedItems.add(key);
 		pageItems.push(item);
@@ -448,7 +459,7 @@ Copyright 2026, SentaiBrad
 	const recordedItems = new Set();
 
 	// Requests made on this page, by where they went.
-	const requestCounts = {steam_search: 0, steam_app_details: 0, steam_package_details: 0, fanatical: 0, saved: 0, most_at_once: 0, too_many: 0};
+	const requestCounts = {steam_search: 0, steam_app_details: 0, steam_package_details: 0, fanatical: 0, saved: 0, most_at_once: 0, too_many: 0, retried: 0};
 
 	// How many items each site rule found on its latest scan. A rule that
 	// suddenly finds 0 usually means the site changed its layout.
@@ -464,6 +475,7 @@ Copyright 2026, SentaiBrad
 	// the colored dot) and a short description.
 	function itemState(match) {
 		if (!match) return {css: "miss", text: "no match"};
+		if (match.type === "failed") return {css: "miss", text: "lookup failed (Steam didn't answer)"};
 		if (match.type === "pack") {
 			const state = packState(match.members);
 			return {css: state.css, text: state.label || `pack of ${match.members.length}, none owned`};
@@ -907,14 +919,21 @@ Copyright 2026, SentaiBrad
 		return packages;
 	}
 
+	// Thrown by a title lookup that couldn't be finished (Steam didn't answer,
+	// or lookups are paused), so it isn't taken for "no match": nothing is
+	// saved, and the item is looked up again (see lookupDidFail).
+	const lookupFailed = new Error("Steam lookup failed");
+
 	// Finds the Steam game, or failing that the Steam package, for a store title.
-	// Resolves to {type: "app"|"sub", id} or null. Only complete answers are cached.
+	// Resolves to {result, cacheable}, where result is {type: "app"|"sub", id}
+	// or null for no match. Throws lookupFailed when a request failed and
+	// nothing was found.
 	async function lookupTitle(title) {
 		let hadError = false;
 
 		const log = (...args) => debugLog.add("lookup", JSON.stringify(title) + " " + args.map((a) => typeof a === "string" ? a : JSON.stringify(a)).join(" "));
 		const candidates = await searchSteamApps(title);
-		if (candidates === null) { log("Steam search failed (network or HTTP error), will retry next visit"); return {result: null, cacheable: false}; }
+		if (candidates === null) { log("Steam search failed (network or HTTP error, or lookups are paused), will be tried again"); throw lookupFailed; }
 		log("search results:", candidates.map((c) => `${c.appid} ${c.title}`));
 		const appid = pickSteamMatch(title, candidates);
 		if (appid) { log("matched game", appid); return {result: {type: "app", id: appid}, cacheable: true}; }
@@ -976,8 +995,9 @@ Copyright 2026, SentaiBrad
 			const game = candidatesSeen.find((c) => normalizeTitle(spellGreek(c.title)) === baseKey);
 			if (game) { log("edition of game", game.appid); return {result: {type: "app", id: game.appid}, cacheable: true}; }
 		}
-		log(hadError ? "no match (an error occurred, not saved)" : "no match (saved as a miss for 1 day)");
-		return {result: null, cacheable: !hadError};
+		if (hadError) { log("no match, but a request failed: not saved, will be tried again"); throw lookupFailed; }
+		log("no match (saved as a miss for 1 day)");
+		return {result: null, cacheable: true};
 	}
 
 	// Resolves to {type: "app"|"sub", id} or null.
@@ -1045,14 +1065,43 @@ Copyright 2026, SentaiBrad
 		return {type: "pack", members};
 	}
 
+	// How often each element's lookup was tried again after failing.
+	const lookupRetries = new WeakMap();
+	const maxLookupRetries = 3;
+
+	// A lookup that couldn't be finished: the item is listed as failed, and a
+	// little later (after the pause, when Steam said "too many requests") its
+	// element counts as new again, so the next page scan looks it up once more.
+	// Each element gets a few tries.
+	function lookupDidFail(element, name, source) {
+		recordItem(name, source, {type: "failed"});
+		const tries = lookupRetries.get(element) ?? 0;
+		if (tries >= maxLookupRetries) return;
+		lookupRetries.set(element, tries + 1);
+		const wait = Math.max(15000, steamPausedUntil - Date.now() + 2000);
+		setTimeout(guard("lookup retry", () => {
+			requestCounts.retried++;
+			element.classList.remove("bh_already_processed");
+		}), wait);
+	}
+
+	// Ends a lookup-and-mark chain for `element`: a failed lookup is tried
+	// again, anything else is recorded as an error.
+	function onLookupError(element, name, source) {
+		return (error) => {
+			if (error === lookupFailed) lookupDidFail(element, name, source);
+			else recordError(`${source}: ${JSON.stringify(name)}`, error);
+		};
+	}
+
 	// For sites that only have a name: looks it up on Steam, lists it in the
 	// debug view with `source` saying where the name came from, and when it's
-	// found, calls mark(match) to mark it the site's way. Failures are logged.
-	function lookUpAndMark(name, source, mark) {
+	// found, calls mark(match) to mark `element` the site's way.
+	function lookUpAndMark(element, name, source, mark) {
 		resolveName(name).then((match) => {
 			recordItem(name, source, match);
 			if (match) mark(match);
-		}).catch(logFailure(`${source}: ${JSON.stringify(name)}`));
+		}).catch(onLookupError(element, name, source));
 	}
 
 	//////////////////////////////////////////////////
@@ -1669,14 +1718,14 @@ Copyright 2026, SentaiBrad
 				// Product cards (store, search, home page rows)
 				noteRule("Eneba product links (a[title])", document.querySelectorAll("a[title][href]").length);
 				for (const link of document.querySelectorAll("a[title][href]")) {
-					if (link.closest(".bh_eneba_card")) continue;   // card already handled
+					if (link.closest(".bh_eneba_card.bh_already_processed")) continue;   // card already handled
 					const name = enebaGameName(link.title);
 					if (!name) continue;
 					const card = findEnebaCard(link);
 					if (!card || card.classList.contains("bh_already_processed")) continue;
 					card.classList.add("bh_already_processed", "bh_eneba_card");
 					makeCard(card);
-					lookUpAndMark(name, "Eneba card title, looked up on Steam", (match) => {
+					lookUpAndMark(card, name, "Eneba card title, looked up on Steam", (match) => {
 						markMatch(card, match, (steamLink) => card.appendChild(steamLink));
 					});
 				}
@@ -1686,7 +1735,7 @@ Copyright 2026, SentaiBrad
 					const name = enebaGameName(heading.textContent.trim());
 					if (name) {
 						heading.classList.add("bh_already_processed", "bh_eneba_heading");
-						lookUpAndMark(name, "Eneba page heading, looked up on Steam", (match) => {
+						lookUpAndMark(heading, name, "Eneba page heading, looked up on Steam", (match) => {
 							markMatch(heading, match, (link) => heading.appendChild(link));
 						});
 					}
@@ -1863,7 +1912,7 @@ Copyright 2026, SentaiBrad
 						if (!match) return;
 						makeCard(card);
 						markMatch(card, match, (link) => placeSteamLink(card, link));
-					}).catch(logFailure(`Fanatical product ${JSON.stringify(product.name)}`));
+					}).catch(onLookupError(card, product.name, source));
 				}
 			}
 
@@ -1950,7 +1999,7 @@ Copyright 2026, SentaiBrad
 					const name = thumbnail?.querySelector("img")?.alt?.trim();
 					if (!name) continue;   // the cover isn't there yet; the next scan tries again
 					card.classList.add("bh_already_processed");
-					lookUpAndMark(name, "Humble bundle card, looked up on Steam", (match) => {
+					lookUpAndMark(card, name, "Humble bundle card, looked up on Steam", (match) => {
 						makeCard(thumbnail);
 						markMatch(card, match, (link) => thumbnail.appendChild(link));
 					});
@@ -1979,7 +2028,7 @@ Copyright 2026, SentaiBrad
 					card.classList.add("bh_already_processed");
 					const name = choiceGameName(title);
 					if (!name) continue;
-					lookUpAndMark(name, "Humble Choice card, looked up on Steam", (match) => {
+					lookUpAndMark(card, name, "Humble Choice card, looked up on Steam", (match) => {
 						makeCard(thumbnail);
 						markMatch(card, match, (link) => thumbnail.appendChild(link));
 					});
@@ -2084,7 +2133,7 @@ Copyright 2026, SentaiBrad
 					if (!titleElem) continue;
 					const title = ownText(titleElem);
 					if (!title) debugLog.add("error", `itch.io tile title came out empty; tile text is ${JSON.stringify(titleElem.textContent.trim().slice(0, 80))}`);
-					lookUpAndMark(title, "itch.io title, looked up on Steam", (match) => {
+					lookUpAndMark(tile, title, "itch.io title, looked up on Steam", (match) => {
 						markMatch(tile, match, (link) => {
 							const thumb = tile.querySelector("a.game_thumb");
 							if (!thumb) return;
@@ -2815,6 +2864,7 @@ Copyright 2026, SentaiBrad
 			value("Answered from saved lookups", requestCounts.saved);
 			value("Steam requests at once", `${requestCounts.most_at_once} at most (setting ${getSetting("steam_requests")})`);
 			value("Steam said too many requests", requestCounts.too_many ? `${requestCounts.too_many === 1 ? "once" : `${requestCounts.too_many} times`}; lookups paused for 1 minute` : "never");
+			value("Failed lookups tried again", requestCounts.retried);
 
 			section("This page");
 			value("Items seen", pageItems.length);

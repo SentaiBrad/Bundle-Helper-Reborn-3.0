@@ -1,5 +1,9 @@
 # Changelog
 
+## 3.0.53
+
+- **A lookup that failed is tried again, and no longer shown as "no match".** When Steam didn't answer (a network problem, a timeout, or the one-minute pause after "too many requests"), the game stayed unmarked until you reloaded the page, and the Items tab listed it as "no match". Now it's listed as "lookup failed (Steam didn't answer)" and looked up again about 15 seconds later, or just after the pause ends, up to 3 times. This covers Humble, Eneba, itch.io and Fanatical products looked up by name. The debug report counts the retries.
+
 ## 3.0.52
 
 - **A partly owned pack on Humble is marked once.** A card naming two games ("Game One + Game Two") with only one owned got an outline around the whole card as well as the frame on its cover. Now it gets the frame only, like every other marked card.
